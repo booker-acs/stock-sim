@@ -4,6 +4,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Read raw body since Vercel doesn't auto-parse
+    const body = await new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', chunk => { data += chunk; });
+      req.on('end', () => { resolve(data); });
+      req.on('error', reject);
+    });
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -11,7 +19,7 @@ export default async function handler(req, res) {
         'x-api-key': process.env.VITE_ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify(req.body),
+      body: body,
     });
 
     const data = await response.json();
