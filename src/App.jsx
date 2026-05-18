@@ -11,7 +11,13 @@ const hashPin = async (pin) => {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
 };
 
-async function fetchStockPrice(ticker) {
+async function fetchStockPrice(ticker) 
+headers: {
+  "Content-Type": "application/json",
+  "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
+  "anthropic-version": "2023-06-01",
+  "anthropic-dangerous-direct-browser-access": "true",
+},{
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -39,6 +45,12 @@ async function fetchStockPrice(ticker) {
 }
 
 async function fetchStockPriceOnDate(ticker, dateStr) {
+	headers: {
+  "Content-Type": "application/json",
+  "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
+  "anthropic-version": "2023-06-01",
+  "anthropic-dangerous-direct-browser-access": "true",
+},
   const today = new Date().toISOString().slice(0, 10);
   if (dateStr >= today) {
     const r = await fetchStockPrice(ticker);
