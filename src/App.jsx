@@ -1486,8 +1486,7 @@ useEffect(() => {
     setPinPrompt({ studentId, mode });
   };
 
-  const allTickers = [...new Set(students.flatMap(s => s.holdings.map(h => h.ticker)))];
-
+  const allTickers = [...new Set(students.flatMap(s => (s.holdings || []).map(h => h.ticker)))];
   const fetchPrice = useCallback(async (ticker) => {
     const result = await fetchStockPrice(ticker);
     if (!result.error) setPrices(prev => ({ ...prev, [ticker]: result }));
