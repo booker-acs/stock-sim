@@ -13,34 +13,19 @@ const hashPin = async (pin) => {
 
 console.log("key loaded:", !!import.meta.env.VITE_ANTHROPIC_API_KEY);
 
-async function fetchStockPrice(ticker) 
-{
+async function fetchStockPrice(ticker) {
   try {
-    const res = await fetch("/api/proxy", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    model: "claude-sonnet-4-5",
-        max_tokens: 300,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{
-          role: "user",
-          content: `Search for the current stock price and previous day's closing price for ticker symbol ${ticker}. Return ONLY a JSON object with no markdown: {"ticker":"${ticker}","currentPrice":NUMBER,"previousClose":NUMBER,"companyName":"NAME"} Use the most recent real market data available.`
-        }]
-      })
+    const res = await fetch('/api/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker })
     });
     const data = await res.json();
-    const text = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-    const clean = text.replace(/```json|```/g, "").trim();
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      return { ticker, currentPrice: parsed.currentPrice, previousClose: parsed.previousClose, companyName: parsed.companyName || ticker, error: null };
+    if (data.currentPrice) {
+      return { ticker, currentPrice: data.currentPrice, previousClose: data.previousClose, companyName: data.companyName || ticker, error: null };
     }
   } catch (e) {}
-  return { ticker, currentPrice: null, previousClose: null, companyName: ticker, error: "Failed to fetch" };
+  return { ticker, currentPrice: null, previousClose: null, companyName: ticker, error: 'Failed to fetch' };
 }
 
 async function fetchStockPriceOnDate(ticker, dateStr) {
@@ -50,33 +35,17 @@ async function fetchStockPriceOnDate(ticker, dateStr) {
     return { ticker, closePrice: r.currentPrice, actualDate: today, companyName: r.companyName, error: r.error };
   }
   try {
-    const res = await fetch("/api/proxy", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    model: "claude-sonnet-4-5",
-        max_tokens: 400,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{
-          role: "user",
-          content: `Search for the closing stock price of ${ticker} on ${dateStr}. If that was a weekend or market holiday, use the most recent prior trading day closing price. Return ONLY a JSON object with no markdown: {"ticker":"${ticker}","closePrice":NUMBER,"actualDate":"YYYY-MM-DD","companyName":"NAME"} where actualDate is the trading day actually used.`
-        }]
-      })
+    const res = await fetch('/api/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, date: dateStr })
     });
     const data = await res.json();
-    const text = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-    const clean = text.replace(/```json|```/g, "").trim();
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      if (parsed.closePrice) {
-        return { ticker, closePrice: parsed.closePrice, actualDate: parsed.actualDate || dateStr, companyName: parsed.companyName || ticker, error: null };
-      }
+    if (data.closePrice) {
+      return { ticker, closePrice: data.closePrice, actualDate: data.actualDate || dateStr, companyName: data.companyName || ticker, error: null };
     }
   } catch (e) {}
-  return { ticker, closePrice: null, actualDate: dateStr, companyName: ticker, error: "Failed to fetch historical price" };
+  return { ticker, closePrice: null, actualDate: dateStr, companyName: ticker, error: 'Failed to fetch historical price' };
 }
 
 function Sparkline({ data, color = "#FFD966", height = 36, width = 100 }) {
