@@ -1533,8 +1533,24 @@ useEffect(() => {
     setRefreshing(false);
   }, []);
 
-  useEffect(() => { if (allTickers.length) refreshPrices(allTickers); }, [students.length]);
-
+  useEffect(() => {
+  const studentsRef = ref(db, 'students');
+  const unsub = onValue(studentsRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      const loaded = Object.values(data).map(s => ({
+        ...s,
+        holdings: s.holdings || [],
+        history: s.history || [],
+        notes: s.notes || "",
+      }));
+      setStudents(loaded);
+    } else {
+      setStudents([]);
+    }
+  });
+  return () => unsub();
+}, []);
   const classes = [...new Set(students.map(s => s.className))];
 
   const handleAddStudent = (student) => {
