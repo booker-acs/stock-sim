@@ -1,4 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, onValue, set, update, remove } from "firebase/database";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAjdy2nE1KHKcKNZCVqBAkMywM4KzrvfvA",
+  authDomain: "stock-sim-edc4f.firebaseapp.com",
+  databaseURL: "https://stock-sim-edc4f-default-rtdb.firebaseio.com",
+  projectId: "stock-sim-edc4f",
+  storageBucket: "stock-sim-edc4f.firebasestorage.app",
+  messagingSenderId: "247760779706",
+  appId: "1:247760779706:web:f9f389a195fe4aff1b8583"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
 
 const fmt$ = (n) => n == null ? "—" : `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtPct = (n) => n == null ? "—" : `${n >= 0 ? "+" : ""}${Number(n).toFixed(2)}%`;
@@ -1419,7 +1434,21 @@ function StudentCard({ student, prices, onClick, onManage }) {
 }
 
 export default function App() {
-  const [students, setStudents] = useState([]);
+ const [students, setStudents] = useState([]);
+
+// Sync students from Firebase on mount
+useEffect(() => {
+  const studentsRef = ref(db, 'students');
+  const unsub = onValue(studentsRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      setStudents(Object.values(data));
+    } else {
+      setStudents([]);
+    }
+  });
+  return () => unsub();
+}, []);
   const [prices, setPrices] = useState({});
   const [detail, setDetail] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -1509,47 +1538,49 @@ export default function App() {
 
   const classes = [...new Set(students.map(s => s.className))];
 
-  const handleAddStudent = (student) => setStudents(prev => [...prev, student]);
+  const handleAddStudent = (student) => {
+  set(ref(db, `students/${student.id}`), student);
+};
 
   const handleUpdateNotes = (studentId, notes) => {
-    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, notes } : s));
-  };
+  update(ref(db, `students/${studentId}`), { notes });
+};
 
   const handleUpdatePin = (studentId, pinHash) => {
-    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pinHash } : s));
-  };
+  update(ref(db, `students/${studentId}`), { pinHash });
+};
 
   const handleUpdateHoldings = (studentId, holdings) => {
-    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, holdings } : s));
-    const tickers = holdings.map(h => h.ticker).filter(Boolean);
-    if (tickers.length) refreshPrices(tickers);
-  };
+  update(ref(db, `students/${studentId}`), { holdings });
+  const tickers = holdings.map(h => h.ticker).filter(Boolean);
+  if (tickers.length) refreshPrices(tickers);
+};
 
   const handleDelete = (id) => { setConfirmDeleteId(id); };
   const confirmDelete = () => {
-    setStudents(prev => prev.filter(s => s.id !== confirmDeleteId));
-    setDetail(null);
-    setConfirmDeleteId(null);
-  };
+  remove(ref(db, `students/${confirmDeleteId}`));
+  setDetail(null);
+  setConfirmDeleteId(null);
+};
 
   const handleSave = () => {
     const blob = new Blob([JSON.stringify({ students }, null, 2)], { type: "application/json" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "stock-roster.json"; a.click();
   };
   const handleLoad = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const { students: loaded } = JSON.parse(ev.target.result);
-        setStudents(loaded);
-        const tickers = [...new Set(loaded.flatMap(s => s.holdings.map(h => h.ticker)))];
-        if (tickers.length) refreshPrices(tickers);
-      } catch { setErrorMsg("Failed to load file — invalid format."); }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const { students: loaded } = JSON.parse(ev.target.result);
+      loaded.forEach(s => set(ref(db, `students/${s.id}`), s));
+      const tickers = [...new Set(loaded.flatMap(s => s.holdings.map(h => h.ticker)))];
+      if (tickers.length) refreshPrices(tickers);
+    } catch { setErrorMsg("Failed to load file — invalid format."); }
   };
+  reader.readAsText(file);
+  e.target.value = "";
+};
 
   const detailStudent = detail ? students.find(s => s.id === detail) : null;
   const manageStudent = manageId ? students.find(s => s.id === manageId) : null;
