@@ -841,7 +841,9 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
   const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
   const totalCurrent = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker]?.currentPrice;
-    return s + (p != null && h.shares != null ? p * h.shares : h.spent);
+    if (p == null || !h.purchasePrice || !h.spent) return s + h.spent;
+    const shares = h.spent / h.purchasePrice; // derive shares from cost basis, not stored value
+    return s + (p * shares);
   }, 0);
   const totalPnL = totalCurrent - totalInvested;
   const totalPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
@@ -1104,7 +1106,8 @@ function Leaderboard({ students, prices, onSelectStudent }) {
     const totalInvested = s.holdings.reduce((sum, h) => sum + h.spent, 0);
     const totalCurrent = s.holdings.reduce((sum, h) => {
       const p = prices[h.ticker]?.currentPrice;
-      return sum + (p != null && h.shares != null ? p * h.shares : h.spent);
+      if (p == null || !h.purchasePrice || !h.spent) return sum + h.spent;
+      return sum + p * (h.spent / h.purchasePrice);
     }, 0);
     const pnl = totalCurrent - totalInvested;
     const pct = totalInvested > 0 ? (pnl / totalInvested) * 100 : null;
@@ -1205,7 +1208,8 @@ function ClassSummaryBar({ students, prices }) {
   const totalCurrent = withHoldings.reduce((sum, s) =>
     sum + s.holdings.reduce((a, h) => {
       const p = prices[h.ticker]?.currentPrice;
-      return a + (p != null && h.shares != null ? p * h.shares : h.spent);
+      if (p == null || !h.purchasePrice || !h.spent) return a + h.spent;
+      return a + p * (h.spent / h.purchasePrice);
     }, 0), 0);
   const totalPnL = totalCurrent - totalInvested;
   const avgPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
@@ -1336,7 +1340,8 @@ function StudentCard({ student, prices, onClick, onManage }) {
   const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
   const currentVals = student.holdings.map(h => {
     const p = prices[h.ticker]?.currentPrice;
-    return p != null && h.shares != null ? p * h.shares : h.spent;
+    if (p == null || !h.purchasePrice || !h.spent) return h.spent;
+    return p * (h.spent / h.purchasePrice); // derive shares from cost basis
   });
   const totalCurrent = currentVals.reduce((a, b) => a + b, 0);
   const pnl = totalCurrent - totalInvested;
@@ -1719,7 +1724,8 @@ useEffect(() => {
                 const inv = s.holdings.reduce((a, h) => a + h.spent, 0);
                 const cur = s.holdings.reduce((a, h) => {
                   const p = prices[h.ticker]?.currentPrice;
-                  return a + (p != null && h.shares != null ? p * h.shares : h.spent);
+                  if (p == null || !h.purchasePrice || !h.spent) return a + h.spent;
+                  return a + p * (h.spent / h.purchasePrice);
                 }, 0);
                 const pct = inv > 0 ? ((cur - inv) / inv) * 100 : null;
                 const today = s.holdings.reduce((a, h) => {
