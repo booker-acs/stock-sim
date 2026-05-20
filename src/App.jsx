@@ -1559,6 +1559,7 @@ useEffect(() => {
       }
       return { ...s, history: [...history, { date: today, value: totalCurrent }] };
     }));
+    console.log("PRICES", JSON.stringify(results.map(r => ({ticker: r.ticker, current: r.currentPrice, prev: r.previousClose}))));
     setLastRefresh(new Date());
     setRefreshing(false);
   }, []);
