@@ -1300,12 +1300,15 @@ function DailyHighlights({ students, prices }) {
     tickerMap[h.ticker].pctSum += pct;
     tickerMap[h.ticker].count += 1;
   }));
-  const tickerStats = Object.values(tickerMap).map(t => ({
-    ticker: t.ticker,
-    companyName: t.companyName,
-    pct: t.pctSum / t.count, // average P&L % across all students who own it
-  })).filter(t => t.count > 0);
+  const tickerStats = Object.values(tickerMap)
+    .filter(t => t.count > 0)
+    .map(t => ({
+      ticker: t.ticker,
+      companyName: t.companyName,
+      pct: t.pctSum / t.count,
+    }));
 
+  console.log("tickerStats:", tickerStats.length, tickerStats.slice(0,3));
   if (!studentStats.length && !tickerStats.length) return null;
 
   const topStudent = studentStats.length ? studentStats.reduce((a, b) => a.todayPnL > b.todayPnL ? a : b) : null;
@@ -1324,12 +1327,12 @@ function DailyHighlights({ students, prices }) {
       value: botStudent.todayPnL >= 0 ? `+${fmt$(botStudent.todayPnL)}` : fmt$(botStudent.todayPnL),
       color: "#ef4444", border: "#3a0f0f"
     },
-    topTicker && {
+    tickerStats.length > 0 && topTicker && {
       icon: "🚀", label: "HOTTEST STOCK TODAY", name: topTicker.ticker,
       sub: topTicker.companyName !== topTicker.ticker ? topTicker.companyName : null,
       value: fmtPct(topTicker.pct), color: "#22c55e", border: "#14532d"
     },
-    botTicker && topTicker?.ticker !== botTicker?.ticker && {
+    tickerStats.length > 1 && botTicker && topTicker?.ticker !== botTicker?.ticker && {
       icon: "🧊", label: "COLDEST STOCK TODAY", name: botTicker.ticker,
       sub: botTicker.companyName !== botTicker.ticker ? botTicker.companyName : null,
       value: fmtPct(botTicker.pct), color: "#ef4444", border: "#3a0f0f"
