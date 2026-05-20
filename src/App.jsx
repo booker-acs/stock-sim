@@ -827,7 +827,7 @@ function SetPinPanel({ student, onUpdatePin }) {
   );
 }
 
-function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onError, fetchPrice }) {
+function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onFixBalance, onError, fetchPrice }) {
   const [showManage, setShowManage] = useState(false);
   const [notes, setNotes] = useState(student.notes || "");
   const [notesSaved, setNotesSaved] = useState(false);
@@ -862,6 +862,9 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           </div>
           <button onClick={() => setShowManage(true)} style={{ background: "#1C4587", border: "1px solid #2a4a8a", borderRadius: 8, color: "#e0e8ff", cursor: "pointer", padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
             ✏️ Manage Holdings
+          </button>
+          <button onClick={() => onFixBalance(student.id)} title="Recalculate cash balance from current holdings" style={{ background: "#1a2d52", border: "1px solid #f59e0b55", borderRadius: 8, color: "#f59e0b", cursor: "pointer", padding: "8px 14px", fontSize: 12, fontWeight: 600 }}>
+            ⚖️ Fix Balance
           </button>
           <button onClick={() => onDelete(student.id)} style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 8, color: "#ef4444", cursor: "pointer", padding: "8px 14px", fontSize: 12 }}>Remove</button>
         </div>
@@ -1571,8 +1574,22 @@ useEffect(() => {
 };
 
   const handleUpdatePin = (studentId, pinHash) => {
-  update(ref(db, `students/${studentId}`), { pinHash });
-};
+    update(ref(db, `students/${studentId}`), { pinHash });
+  };
+
+  const handleFixBalance = (studentId) => {
+    const student = students.find(s => s.id === studentId);
+    if (!student) return;
+    const correctBalance = BUDGET - (student.holdings || []).reduce((s, h) => s + (h.spent || 0), 0);
+    update(ref(db, `students/${studentId}`), { cashBalance: correctBalance });
+  };
+
+  const handleFixAllBalances = () => {
+    students.forEach(s => {
+      const correctBalance = BUDGET - (s.holdings || []).reduce((sum, h) => sum + (h.spent || 0), 0);
+      update(ref(db, `students/${s.id}`), { cashBalance: correctBalance });
+    });
+  };
 
   const handleUpdateHoldings = (studentId, holdings, cashBalance) => {
     const updateData = { holdings };
@@ -1613,7 +1630,7 @@ useEffect(() => {
 
   if (detailStudent) return (
     <>
-      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onError={setErrorMsg} fetchPrice={fetchPrice}/>
+      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onFixBalance={handleFixBalance} onError={setErrorMsg} fetchPrice={fetchPrice}/>
       {errorMsg && <ErrorToast message={errorMsg} onClose={() => setErrorMsg(null)}/>}
       {confirmDeleteId && (
         <ConfirmModal
@@ -1663,6 +1680,10 @@ useEffect(() => {
             <button onClick={() => refreshPrices(allTickers)} disabled={refreshing || !allTickers.length}
               style={{ background: refreshing ? "#1a2d52" : "#1C4587", border: "1px solid #2a4a8a", borderRadius: 8, color: refreshing ? "#5566aa" : "#e0e8ff", cursor: refreshing ? "default" : "pointer", padding: "7px 14px", fontSize: 12 }}>
               {refreshing ? "⟳ Updating…" : "⟳ Refresh"}
+            </button>
+            <button onClick={handleFixAllBalances} disabled={!students.length} title="Recalculate cash balance for ALL students"
+              style={{ background: "#1a2d52", border: "1px solid #f59e0b55", borderRadius: 8, color: students.length ? "#f59e0b" : "#445577", cursor: students.length ? "pointer" : "default", padding: "7px 14px", fontSize: 12, fontWeight: 600 }}>
+              ⚖️ Fix All
             </button>
             <button onClick={() => exportCSV(students, prices)} disabled={!students.length}
               style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: students.length ? "#8899bb" : "#2a3f6b", cursor: students.length ? "pointer" : "default", padding: "7px 14px", fontSize: 12 }}>📤 Export CSV</button>
