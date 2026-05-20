@@ -547,7 +547,7 @@ function DiversityPanel({ holdings }) {
 
   return (
     <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-      <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 16 }}>Portfolio Diversity</div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 16 }}>Portfolio Diversity</div>
 
       {/* Score ring area */}
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start", marginBottom: 16 }}>
@@ -742,7 +742,7 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
 
   return (
     <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-      <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 6 }}>What-If Simulator</div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 6 }}>What-If Simulator</div>
       <div style={{ fontSize: 12, color: "#445577", marginBottom: 16 }}>
         Hypothetically test alternative investments without affecting this student's real portfolio.
       </div>
@@ -843,7 +843,7 @@ function SetPinPanel({ student, onUpdatePin }) {
 
   return (
     <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-      <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 4 }}>
         {student.pinHash ? "Change PIN" : "Set Student PIN"}
       </div>
       <div style={{ fontSize: 12, color: "#445577", marginBottom: 14 }}>
@@ -957,11 +957,11 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
         ) : (
           <>
             <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px 20px 16px" }}>
-              <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 16 }}>Performance by Stock</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 16 }}>Performance by Stock</div>
               <BarChart holdings={student.holdings} prices={prices}/>
             </div>
             <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-              <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 16 }}>Holdings Detail</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 16 }}>Holdings Detail</div>
               <div style={{ display: "grid", gridTemplateColumns: "70px 1fr 70px 90px 80px 80px 80px", gap: 8, marginBottom: 8, padding: "0 4px" }}>
                 {["Ticker","Company","Shares","Date","Buy Price","Now","P&L"].map(h => (
                   <div key={h} style={{ fontSize: 10, color: "#445577", textTransform: "uppercase", letterSpacing: 1 }}>{h}</div>
@@ -995,7 +995,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {(student.history?.length >= 1) && (
             <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
-              <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 14 }}>Portfolio History</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 14 }}>Portfolio History</div>
               <PortfolioHistoryChart history={student.history}/>
             </div>
           )}
@@ -1005,7 +1005,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           {/* Notes section */}
           <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5 }}>Teacher Notes</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2 }}>Teacher Notes</div>
               <button onClick={handleSaveNotes}
                 style={{ background: notesSaved ? "#14532d" : "#1a2d52", border: `1px solid ${notesSaved ? "#22c55e" : "#2a3f6b"}`, borderRadius: 6, color: notesSaved ? "#22c55e" : "#8899bb", cursor: "pointer", padding: "4px 14px", fontSize: 11, fontWeight: 600, transition: "all 0.2s" }}>
                 {notesSaved ? "✓ Saved" : "Save Notes"}
@@ -1340,13 +1340,16 @@ function MarketStatusBanner() {
     return () => clearInterval(interval);
   }, []);
 
-  if (!status || status === "closed") return null;
+  if (!status) return null;
 
   const config = {
     premarket:   { label: "PRE-MARKET",   color: "#FFD966", bg: "#2a2200", border: "#FFD96655", dot: "#FFD966" },
     open:        { label: "MARKET OPEN",  color: "#22c55e", bg: "#0d2a1a", border: "#22c55e55", dot: "#22c55e" },
     afterhours:  { label: "AFTER HOURS",  color: "#a78bfa", bg: "#1a0f2e", border: "#a78bfa55", dot: "#a78bfa" },
+    closed:      { label: "MARKET CLOSED", color: "#ef4444", bg: "#2a0a0a", border: "#ef444455", dot: "#ef4444" },
   }[status];
+
+  if (!config) return null;
 
   return (
     <div style={{ background: config.bg, borderBottom: `1px solid ${config.border}`, padding: "6px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
