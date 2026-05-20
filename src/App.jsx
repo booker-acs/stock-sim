@@ -670,8 +670,10 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
   const [simPrices, setSimPrices] = useState({});
   const [loading, setLoading] = useState(false);
   const [ran, setRan] = useState(false);
+  const [simDate, setSimDate] = useState(new Date().toISOString().slice(0, 10));
 
   const today = new Date().toISOString().slice(0, 10);
+  const isHistorical = simDate < today;
 
   const addRow = () => { if (rows.length < 5) setRows(p => [...p, { id: uid(), ticker: "", amount: "" }]); };
   const removeRow = (id) => setRows(p => p.filter(r => r.id !== id));
@@ -687,11 +689,17 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
     setRan(false);
     const results = await Promise.all(validRows.map(async r => {
       const ticker = r.ticker.trim().toUpperCase();
-      // use cached price if available, otherwise fetch
-      const cached = prices[ticker];
-      if (cached?.currentPrice) return { ticker, currentPrice: cached.currentPrice, companyName: cached.companyName };
-      const p = await fetchPrice(ticker);
-      return { ticker, currentPrice: p?.currentPrice || null, companyName: p?.companyName || ticker };
+      if (isHistorical) {
+        // fetch historical price for the chosen date
+        const p = await fetchStockPriceOnDate(ticker, simDate);
+        const currentP = prices[ticker]?.currentPrice || null;
+        return { ticker, buyPrice: p?.closePrice || null, currentPrice: currentP, companyName: p?.companyName || ticker };
+      } else {
+        const cached = prices[ticker];
+        if (cached?.currentPrice) return { ticker, buyPrice: cached.currentPrice, currentPrice: cached.currentPrice, companyName: cached.companyName };
+        const p = await fetchPrice(ticker);
+        return { ticker, buyPrice: p?.currentPrice || null, currentPrice: p?.currentPrice || null, companyName: p?.companyName || ticker };
+      }
     }));
     const map = {};
     results.forEach(r => { map[r.ticker] = r; });
@@ -725,14 +733,14 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
     const ticker = r.ticker.trim().toUpperCase();
     const p = simPrices[ticker];
     const spent = parseFloat(r.amount);
-    if (!p?.currentPrice) return { ticker, spent, pnl: null, pct: null };
-    // Use previousClose from global prices if available, else currentPrice (no change)
-    const prevClose = prices[ticker]?.previousClose || p.currentPrice;
-    const shares = spent / prevClose;
-    const nowVal = shares * p.currentPrice;
+    if (!p?.buyPrice) return { ticker, spent, pnl: null, pct: null };
+    const buyPrice = p.buyPrice;
+    const nowPrice = isHistorical ? (p.currentPrice || buyPrice) : buyPrice;
+    const shares = spent / buyPrice;
+    const nowVal = shares * nowPrice;
     const pnl = nowVal - spent;
     const pct = (pnl / spent) * 100;
-    return { ticker, spent, shares, buyPrice: prevClose, nowPrice: p.currentPrice, nowVal, pnl, pct, companyName: p.companyName };
+    return { ticker, spent, shares, buyPrice, nowPrice, nowVal, pnl, pct, companyName: p.companyName };
   }) : [];
 
   const simTotalPnL = simResults.reduce((s, r) => s + (r.pnl || 0), 0);
@@ -745,6 +753,16 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 6 }}>What-If Simulator</div>
       <div style={{ fontSize: 12, color: "#445577", marginBottom: 16 }}>
         Hypothetically test alternative investments without affecting this student's real portfolio.
+      </div>
+
+      {/* Date picker */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: "#6677aa", letterSpacing: 1, whiteSpace: "nowrap" }}>PURCHASE DATE</div>
+        <input type="date" value={simDate} max={today} onChange={e => { setSimDate(e.target.value); setRan(false); }}
+          style={{ ...iStyle, width: "auto", borderColor: isHistorical ? "#f59e0b66" : "#2a3f6b" }}/>
+        {isHistorical && (
+          <span style={{ fontSize: 11, color: "#f59e0b" }}>📅 Will fetch historical prices for {simDate}</span>
+        )}
       </div>
 
       {/* Input rows */}
@@ -781,7 +799,7 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
                 <div style={{ fontSize: 11, color: "#6677aa" }}>{fmt$(realCurrent - realInvested)} on {fmt$(realInvested)}</div>
               </div>
               <div style={{ borderLeft: "1px solid #1e3560", paddingLeft: 12 }}>
-                <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 4 }}>HYPOTHETICAL (TODAY)</div>
+                <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 4 }}>{isHistorical ? `HYPOTHETICAL (SINCE ${simDate})` : "HYPOTHETICAL (TODAY)"}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: simTotalPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(simTotalPct)}</div>
                 <div style={{ fontSize: 11, color: "#6677aa" }}>{simTotalPnL >= 0 ? "+" : ""}{fmt$(simTotalPnL)} on {fmt$(simInvested)}</div>
               </div>
@@ -813,7 +831,7 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
             </div>
           ))}
           <div style={{ fontSize: 10, color: "#445577", marginTop: 10, fontStyle: "italic" }}>
-            Simulation uses yesterday's close as buy price and today's price as current value.
+            {isHistorical ? `Historical simulation: bought at ${simDate} prices, valued at today's prices.` : "Simulation uses current price as buy price and compares to today's value."}
           </div>
         </>
       )}
@@ -988,45 +1006,59 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           </>
         )}
       </div>
-      {/* Two-column layout for lower panels */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "start" }}>
+      {/* Lower panels layout */}
 
-        {/* Left column: Portfolio History + Diversity */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {(student.history?.length >= 1) && (
+      {/* Row 1: Portfolio History (left) + Portfolio Diversity (right) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "start" }}>
+        <div>
+          {(student.history?.length >= 1) ? (
             <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
               <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 14 }}>Portfolio History</div>
               <PortfolioHistoryChart history={student.history}/>
             </div>
-          )}
-          {student.holdings.length > 0 && (
-            <DiversityPanel holdings={student.holdings}/>
-          )}
-          {/* Notes section */}
-          <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2 }}>Teacher Notes</div>
-              <button onClick={handleSaveNotes}
-                style={{ background: notesSaved ? "#14532d" : "#1a2d52", border: `1px solid ${notesSaved ? "#22c55e" : "#2a3f6b"}`, borderRadius: 6, color: notesSaved ? "#22c55e" : "#8899bb", cursor: "pointer", padding: "4px 14px", fontSize: 11, fontWeight: 600, transition: "all 0.2s" }}>
-                {notesSaved ? "✓ Saved" : "Save Notes"}
-              </button>
+          ) : (
+            <div style={{ background: "#0f2347", border: "1px dashed #1e3560", borderRadius: 12, padding: "20px", textAlign: "center", color: "#445577", fontSize: 13 }}>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 8 }}>Portfolio History</div>
+              History builds up as prices are refreshed each session.
             </div>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Add grading notes, observations, or feedback for this student…"
-              rows={4}
-              style={{ width: "100%", background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "10px 12px", fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}
-            />
+          )}
+        </div>
+        <div>
+          {student.holdings.length > 0 ? (
+            <DiversityPanel holdings={student.holdings}/>
+          ) : (
+            <div style={{ background: "#0f2347", border: "1px dashed #1e3560", borderRadius: 12, padding: "20px", textAlign: "center", color: "#445577", fontSize: 13 }}>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 8 }}>Portfolio Diversity</div>
+              Add holdings to see diversity score.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 2: What-If Simulator (left) + Teacher Notes (right) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "start" }}>
+        <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
+        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2 }}>Teacher Notes</div>
+            <button onClick={handleSaveNotes}
+              style={{ background: notesSaved ? "#14532d" : "#1a2d52", border: `1px solid ${notesSaved ? "#22c55e" : "#2a3f6b"}`, borderRadius: 6, color: notesSaved ? "#22c55e" : "#8899bb", cursor: "pointer", padding: "4px 14px", fontSize: 11, fontWeight: 600, transition: "all 0.2s" }}>
+              {notesSaved ? "✓ Saved" : "Save Notes"}
+            </button>
           </div>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Add grading notes, observations, or feedback for this student…"
+            rows={8}
+            style={{ width: "100%", background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "10px 12px", fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}
+          />
         </div>
+      </div>
 
-        {/* Right column: What-If + Set PIN */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
-          <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
-        </div>
-
+      {/* Row 3: Set/Change PIN full width */}
+      <div style={{ marginTop: 16 }}>
+        <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
       </div>
 
 
