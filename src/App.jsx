@@ -842,14 +842,16 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
   const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
   // Single-pass calculation to ensure all values use identical price snapshots
+  const today = new Date().toISOString().slice(0, 10);
   const holdingStats = student.holdings.map(h => {
     const priceData = prices[h.ticker];
     const currentPrice = priceData?.currentPrice ?? null;
     const previousClose = priceData?.previousClose ?? null;
     const derivedShares = (h.purchasePrice && h.spent) ? h.spent / h.purchasePrice : 0;
     const currentValue = (currentPrice != null) ? currentPrice * derivedShares : h.spent;
-    const todayChange = (currentPrice != null && previousClose != null)
-      ? (currentPrice - previousClose) * derivedShares : 0;
+    const todayBaseline = h.date === today ? h.purchasePrice : previousClose;
+    const todayChange = (currentPrice != null && todayBaseline != null)
+      ? (currentPrice - todayBaseline) * derivedShares : 0;
     return { currentValue, todayChange };
   });
   const stockValue = holdingStats.reduce((s, h) => s + h.currentValue, 0);
@@ -1121,11 +1123,14 @@ function Leaderboard({ students, prices, onSelectStudent }) {
     const portfolioValue = stockValue + cashLeft;
     const pnl = portfolioValue - BUDGET;
     const pct = (pnl / BUDGET) * 100;
+    const todayStrLB = new Date().toISOString().slice(0, 10);
     const todayPnL = s.holdings.reduce((sum, h) => {
       const p = prices[h.ticker];
-      if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return sum;
+      if (!p?.currentPrice || !h.purchasePrice || !h.spent) return sum;
       const derivedShares = h.spent / h.purchasePrice;
-      return sum + (p.currentPrice - p.previousClose) * derivedShares;
+      const baseline = h.date === todayStrLB ? h.purchasePrice : p.previousClose;
+      if (baseline == null) return sum;
+      return sum + (p.currentPrice - baseline) * derivedShares;
     }, 0);
     const hasData = s.holdings.some(h => prices[h.ticker]?.currentPrice);
     const totalCurrent = portfolioValue;
@@ -1266,13 +1271,16 @@ function DailyHighlights({ students, prices }) {
   // student-level today P&L
   const studentStats = students
     .map(s => {
+      const todayStrDH = new Date().toISOString().slice(0, 10);
       const todayPnL = s.holdings.reduce((sum, h) => {
         const p = prices[h.ticker];
-        if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return sum;
+        if (!p?.currentPrice || !h.purchasePrice || !h.spent) return sum;
         const derivedShares = h.spent / h.purchasePrice;
-        return sum + (p.currentPrice - p.previousClose) * derivedShares;
+        const baseline = h.date === todayStrDH ? h.purchasePrice : p.previousClose;
+        if (baseline == null) return sum;
+        return sum + (p.currentPrice - baseline) * derivedShares;
       }, 0);
-      const hasData = s.holdings.some(h => prices[h.ticker]?.previousClose);
+      const hasData = s.holdings.some(h => prices[h.ticker]?.currentPrice);
       return { id: s.id, name: s.name, todayPnL, hasData };
     })
     .filter(s => s.hasData);
@@ -1358,11 +1366,14 @@ function StudentCard({ student, prices, onClick, onManage }) {
   const portfolioValue = stockValue + cashLeft; // total portfolio including cash
   const pnl = portfolioValue - BUDGET;          // gain/loss vs starting budget
   const pct = (pnl / BUDGET) * 100;
+  const todayStrCard = new Date().toISOString().slice(0, 10);
   const todayPnL = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker];
-    if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return s;
+    if (!p?.currentPrice || !h.purchasePrice || !h.spent) return s;
     const derivedShares = h.spent / h.purchasePrice;
-    return s + (p.currentPrice - p.previousClose) * derivedShares;
+    const baseline = h.date === todayStrCard ? h.purchasePrice : p.previousClose;
+    if (baseline == null) return s;
+    return s + (p.currentPrice - baseline) * derivedShares;
   }, 0);
   const todayPct = (todayPnL / BUDGET) * 100;
   const hasHoldings = student.holdings.length > 0;
@@ -1559,7 +1570,6 @@ useEffect(() => {
       }
       return { ...s, history: [...history, { date: today, value: totalCurrent }] };
     }));
-    console.log("PRICES", JSON.stringify(results.map(r => ({ticker: r.ticker, current: r.currentPrice, prev: r.previousClose}))));
     setLastRefresh(new Date());
     setRefreshing(false);
   }, []);
