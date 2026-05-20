@@ -1216,50 +1216,44 @@ function ClassSummaryBar({ students, prices }) {
   const withHoldings = students.filter(s => s.holdings.length > 0);
   if (!withHoldings.length) return null;
 
-  const totalInvested = withHoldings.reduce((sum, s) => sum + s.holdings.reduce((a, h) => a + h.spent, 0), 0);
-  const totalCurrent = withHoldings.reduce((sum, s) => {
-    const totalInvested = s.holdings.reduce((a, h) => a + h.spent, 0);
-    const cashLeft = s.cashBalance != null ? s.cashBalance : BUDGET - totalInvested;
+  // Per-student portfolio values using consistent BUDGET basis
+  const studentPortfolios = withHoldings.map(s => {
+    const inv = s.holdings.reduce((a, h) => a + h.spent, 0);
+    const cash = s.cashBalance != null ? s.cashBalance : BUDGET - inv;
     const stockVal = s.holdings.reduce((a, h) => {
       const p = prices[h.ticker]?.currentPrice;
       if (p == null || !h.purchasePrice || !h.spent) return a + h.spent;
       return a + p * (h.spent / h.purchasePrice);
     }, 0);
-    return sum + stockVal + cashLeft;
-  }, 0);
-  const totalPnL = totalCurrent - totalInvested;
-  const avgPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
+    const portfolioVal = stockVal + cash;
+    const pct = (portfolioVal - BUDGET) / BUDGET * 100;
+    return { portfolioVal, pct };
+  });
 
-  const ranked = withHoldings.map(s => {
-    const inv = s.holdings.reduce((a, h) => a + h.spent, 0);
-    const cur = s.holdings.reduce((a, h) => {
-      const p = prices[h.ticker]?.currentPrice;
-      return a + (p != null && h.shares != null ? p * h.shares : h.spent);
-    }, 0);
-    const pct = inv > 0 ? ((cur - inv) / inv) * 100 : null;
-    return { ...s, pct };
-  }).filter(s => s.pct != null).sort((a, b) => b.pct - a.pct);
+  // Total class value = sum of all portfolio values
+  const totalClassValue = studentPortfolios.reduce((s, p) => s + p.portfolioVal, 0);
 
-  const best = ranked[0];
-  const worst = ranked[ranked.length - 1];
-  const studentsWithData = ranked.length;
+  // Class portfolio return = (total value - total starting budget) / total starting budget
+  const totalStartingBudget = withHoldings.length * BUDGET;
+  const classPortfolioPct = (totalClassValue - totalStartingBudget) / totalStartingBudget * 100;
+
+  // Avg student return = simple average of each student's individual P&L%
+  const avgStudentPct = studentPortfolios.reduce((s, p) => s + p.pct, 0) / studentPortfolios.length;
 
   const stats = [
-    { label: "Students Invested", value: `${studentsWithData} / ${students.length}`, color: "#FFD966" },
-    { label: "Total Class Invested", value: fmt$(totalInvested), color: "#e0e8ff" },
-    { label: "Total Class Value", value: fmt$(totalCurrent), color: "#e0e8ff" },
-    { label: "Avg Return", value: fmtPct(avgPct), color: avgPct >= 0 ? "#22c55e" : "#ef4444" },
-    best && { label: "Class Leader", value: best.name, sub: fmtPct(best.pct), color: "#22c55e" },
-    worst && best?.id !== worst?.id && { label: "Trailing", value: worst.name, sub: fmtPct(worst.pct), color: "#ef4444" },
-  ].filter(Boolean);
+    { label: "Students Invested", value: `${withHoldings.length} / ${students.length}`, color: "#FFD966" },
+    { label: "Total Class Value", value: fmt$(totalClassValue), color: "#e0e8ff" },
+    { label: "Avg Student Return", value: fmtPct(avgStudentPct), sub: "simple avg across all students", color: avgStudentPct >= 0 ? "#22c55e" : "#ef4444" },
+    { label: "Class Portfolio Return", value: fmtPct(classPortfolioPct), sub: "all budgets pooled together", color: classPortfolioPct >= 0 ? "#22c55e" : "#ef4444" },
+  ];
 
   return (
     <div style={{ background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 10, padding: "12px 20px", marginBottom: 24, display: "flex", gap: 0, flexWrap: "wrap" }}>
       {stats.map((s, i) => (
-        <div key={i} style={{ flex: "1 1 120px", padding: "6px 16px", borderLeft: i > 0 ? "1px solid #1e3560" : "none" }}>
+        <div key={i} style={{ flex: "1 1 140px", padding: "6px 16px", borderLeft: i > 0 ? "1px solid #1e3560" : "none" }}>
           <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, textTransform: "uppercase", marginBottom: 3 }}>{s.label}</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: s.color, whiteSpace: "nowrap" }}>{s.value}</div>
-          {s.sub && <div style={{ fontSize: 11, color: s.color, opacity: 0.8 }}>{s.sub}</div>}
+          {s.sub && <div style={{ fontSize: 10, color: "#445577", marginTop: 1 }}>{s.sub}</div>}
         </div>
       ))}
     </div>
