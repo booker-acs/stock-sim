@@ -296,7 +296,7 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
         {overBudget && (
           <div style={{ background: "#3a0f0f", border: "1px solid #ef4444", borderRadius: 8, padding: "10px 14px", color: "#fca5a5", fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
             <span>⚠️</span>
-            <span>Exceeds $10,000 budget by <strong>{fmt$(totalSpent - BUDGET)}</strong>. You've exceeded your pocket cash — reduce investments to save.</span>
+            <span>You've exceeded your pocket cash by <strong>{fmt$(Math.abs(availableCash))}</strong>. Reduce new purchases or sell a holding to free up cash.</span>
           </div>
         )}
 
