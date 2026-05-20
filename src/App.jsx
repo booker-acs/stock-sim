@@ -141,6 +141,8 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
   const [fetching, setFetching] = useState(false);
   const [fetchStatus, setFetchStatus] = useState({});
 
+  const [soldProceeds, setSoldProceeds] = useState(0); // tracks cash from selling at market value
+
   const lockedSpent = rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).reduce((s, h) => s + (h.spent || 0), 0);
   const newSpent = rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).reduce((s, h) => s + (parseFloat(h.spentStr) || 0), 0);
   const totalSpent = lockedSpent + newSpent;
@@ -152,8 +154,6 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
   const pctUsed = Math.min((lockedSpent / BUDGET) * 100, 100);
   const cashLeft = availableCash;
   const today = new Date().toISOString().slice(0, 10);
-
-  const [soldProceeds, setSoldProceeds] = useState(0); // tracks cash from selling at market value
 
   const addRow = () => { if (rows.length < 10) setRows(prev => [...prev, { id: uid(), ticker: "", date: today, spentStr: "", spent: 0, purchasePrice: null, shares: null }]); };
 
