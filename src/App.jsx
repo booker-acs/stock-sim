@@ -127,7 +127,7 @@ function ErrorToast({ message, onClose }) {
   );
 }
 
-function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) {
+function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, prices }) {
   const [rows, setRows] = useState(
     student.holdings.length
       ? student.holdings.map(h => ({
@@ -144,13 +144,30 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
   const lockedSpent = rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).reduce((s, h) => s + (h.spent || 0), 0);
   const newSpent = rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).reduce((s, h) => s + (parseFloat(h.spentStr) || 0), 0);
   const totalSpent = lockedSpent + newSpent;
-  const cashLeft = BUDGET - totalSpent;
-  const overBudget = totalSpent > BUDGET;
-  const pctUsed = Math.min((totalSpent / BUDGET) * 100, 100);
+  // Available cash = original cashBalance + proceeds from sells - new purchases
+  const originalCash = student.cashBalance != null ? student.cashBalance : BUDGET - student.holdings.reduce((s, h) => s + (h.spent || 0), 0);
+  const availableCash = originalCash + soldProceeds - newSpent;
+  const overBudget = availableCash < 0;
+  const totalPortfolio = lockedSpent + (originalCash + soldProceeds);
+  const pctUsed = Math.min((lockedSpent / BUDGET) * 100, 100);
+  const cashLeft = availableCash;
   const today = new Date().toISOString().slice(0, 10);
 
+  const [soldProceeds, setSoldProceeds] = useState(0); // tracks cash from selling at market value
+
   const addRow = () => { if (rows.length < 10) setRows(prev => [...prev, { id: uid(), ticker: "", date: today, spentStr: "", spent: 0, purchasePrice: null, shares: null }]); };
-  const removeRow = (id) => setRows(prev => prev.filter(h => h.id !== id));
+
+  const removeRow = (id) => {
+    const h = rows.find(r => r.id === id);
+    if (h && h.purchasePrice && h.purchasePrice > 0 && h.spent) {
+      // Selling a locked holding — credit current market value, not original cost
+      const currentPrice = prices[h.ticker]?.currentPrice;
+      const derivedShares = h.spent / h.purchasePrice;
+      const marketValue = currentPrice ? currentPrice * derivedShares : h.spent;
+      setSoldProceeds(prev => prev + marketValue);
+    }
+    setRows(prev => prev.filter(r => r.id !== id));
+  };
   const updateRow = (id, field, val) => setRows(prev => prev.map(h => {
     if (h.id !== id) return h;
     if (field === "spentStr") return { ...h, spentStr: val, spent: parseFloat(val) || 0 };
@@ -162,9 +179,8 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
 
   const handleSave = async () => {
     const valid = rows.filter(h => h.ticker.trim() && parseFloat(h.spentStr) > 0);
-    const total = valid.reduce((s, h) => s + parseFloat(h.spentStr), 0);
-    if (total > BUDGET) {
-      onError(`You've exceeded your pocket cash! Total $${total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} exceeds the $10,000 budget by ${fmt$(total - BUDGET)}. Please reduce your investments.`);
+    if (availableCash < 0) {
+      onError(`You've exceeded your pocket cash! You need ${fmt$(Math.abs(availableCash))} more to complete these purchases.`);
       return;
     }
     if (!valid.length) { onClose(); return; }
@@ -186,7 +202,8 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
     }));
     setFetching(false);
     const totalLockedSpent = resolved.reduce((s, h) => s + (h.spent || 0), 0);
-    const newCashBalance = BUDGET - totalLockedSpent;
+    // newCashBalance = original cash + sell proceeds - new purchases
+    const newCashBalance = originalCash + soldProceeds - newSpent;
     onSave(resolved, newCashBalance);
     onClose();
   };
@@ -203,9 +220,9 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
 
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 5 }}>
-            <span style={{ color: "#8899bb" }}>BUDGET USED</span>
+            <span style={{ color: "#8899bb" }}>AVAILABLE CASH</span>
             <span style={{ fontWeight: 700, color: overBudget ? "#ef4444" : cashLeft <= 500 ? "#f59e0b" : "#22c55e" }}>
-              {fmt$(totalSpent)} / {fmt$(BUDGET)} &nbsp;·&nbsp; {fmt$(cashLeft)} remaining
+              {fmt$(cashLeft)} available {soldProceeds > 0 ? `(includes ${fmt$(soldProceeds)} from sales)` : ""}
             </span>
           </div>
           <div style={{ height: 6, background: "#0d1f3c", borderRadius: 4, overflow: "hidden" }}>
@@ -213,40 +230,62 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, marginBottom: 6, padding: "0 2px" }}>
-          {["TICKER", "PURCHASE DATE", "$ INVESTED", ""].map(h => (
-            <div key={h} style={{ fontSize: 10, color: "#445577", letterSpacing: 1 }}>{h}</div>
-          ))}
-        </div>
-
-        {rows.map(h => {
-          const isPast = h.date && h.date < today;
-          const isLocked = h.purchasePrice != null;
-          const status = fetchStatus[h.id];
-          return (
-            <div key={h.id} style={{ marginBottom: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, alignItems: "center" }}>
-                <input value={h.ticker} onChange={e => updateRow(h.id, "ticker", e.target.value)} placeholder="AAPL" style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
-                <div style={{ position: "relative" }}>
-                  <input type="date" value={h.date} onChange={e => updateRow(h.id, "date", e.target.value)} style={{ ...iStyle, borderColor: isPast ? "#f59e0b66" : "#2a3f6b" }}/>
+        {/* ── Locked (existing) holdings ── */}
+        {rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).length > 0 && (
+          <>
+            <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>CURRENT HOLDINGS — locked in</div>
+            {rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).map(h => (
+              <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966", fontSize: 14, width: 70 }}>{h.ticker}</div>
+                <div style={{ flex: 1, fontSize: 12, color: "#8899bb" }}>
+                  {fmt$(h.spent)} invested · {fmt$(h.purchasePrice)}/share · {h.spent && h.purchasePrice ? (h.spent / h.purchasePrice).toFixed(4) : "—"} shares
                 </div>
-                <input type="number" min="0" value={h.spentStr} onChange={e => updateRow(h.id, "spentStr", e.target.value)} placeholder="Amount ($)" style={{ ...iStyle, borderColor: overBudget ? "#ef444466" : "#2a3f6b" }}/>
-                <button onClick={() => removeRow(h.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 14, height: 36, width: 32 }}>✕</button>
+                <div style={{ fontSize: 10, color: "#22c55e", background: "#0d2a1a", border: "1px solid #22c55e33", borderRadius: 4, padding: "2px 7px", marginRight: 4 }}>🔒 LOCKED</div>
+                <button onClick={() => removeRow(h.id)}
+                  style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ef4444", cursor: "pointer", padding: "4px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  Sell
+                </button>
               </div>
-              {(isPast || isLocked || status) && (
-                <div style={{ paddingLeft: 2, marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
-                  {status ? (
-                    <span style={{ fontSize: 11, color: "#f59e0b", fontStyle: "italic" }}>⟳ {status}</span>
-                  ) : isLocked ? (
-                    <span style={{ fontSize: 11, color: "#22c55e" }}>✓ Locked at {fmt$(h.purchasePrice)} ({h.date})</span>
-                  ) : isPast ? (
-                    <span style={{ fontSize: 11, color: "#f59e0b" }}>📅 Historical price will be fetched for {h.date}</span>
-                  ) : null}
-                </div>
-              )}
+            ))}
+            <div style={{ height: 1, background: "#1e3560", margin: "12px 0" }}/>
+          </>
+        )}
+
+        {/* ── New (editable) holdings ── */}
+        {rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).length > 0 && (
+          <>
+            <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>
+              {rows.some(h => h.purchasePrice != null && h.purchasePrice > 0) ? "NEW PURCHASES" : "STOCK PURCHASES"}
             </div>
-          );
-        })}
+            <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, marginBottom: 6, padding: "0 2px" }}>
+              {["TICKER", "PURCHASE DATE", "$ INVESTED", ""].map(h => (
+                <div key={h} style={{ fontSize: 10, color: "#334466", letterSpacing: 1 }}>{h}</div>
+              ))}
+            </div>
+            {rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).map(h => {
+              const isPast = h.date && h.date < today;
+              const status = fetchStatus[h.id];
+              return (
+                <div key={h.id} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, alignItems: "center" }}>
+                    <input value={h.ticker} onChange={e => updateRow(h.id, "ticker", e.target.value)} placeholder="AAPL" style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
+                    <input type="date" value={h.date} onChange={e => updateRow(h.id, "date", e.target.value)} style={{ ...iStyle, borderColor: isPast ? "#f59e0b66" : "#2a3f6b" }}/>
+                    <input type="number" min="0" value={h.spentStr} onChange={e => updateRow(h.id, "spentStr", e.target.value)} placeholder="Amount ($)" style={{ ...iStyle, borderColor: overBudget ? "#ef444466" : "#2a3f6b" }}/>
+                    <button onClick={() => removeRow(h.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 14, height: 36, width: 32 }}>✕</button>
+                  </div>
+                  {(isPast || status) && (
+                    <div style={{ paddingLeft: 2, marginTop: 4 }}>
+                      {status
+                        ? <span style={{ fontSize: 11, color: "#f59e0b", fontStyle: "italic" }}>⟳ {status}</span>
+                        : <span style={{ fontSize: 11, color: "#f59e0b" }}>📅 Historical price will be fetched for {h.date}</span>
+                      }
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
 
         {rows.length < 10 && (
           <button onClick={addRow} style={{ background: "none", border: "1px dashed #2a3f6b", borderRadius: 6, color: "#8899bb", cursor: "pointer", padding: "7px 0", width: "100%", fontSize: 12, marginBottom: 4 }}>
@@ -982,7 +1021,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
       <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
 
       {showManage && (
-        <ManageHoldingsModal student={student} onSave={(h, cash) => onUpdateHoldings(student.id, h, cash)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
+        <ManageHoldingsModal student={student} prices={prices} onSave={(h, cash) => onUpdateHoldings(student.id, h, cash)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
       )}
     </div>
   );
@@ -1821,6 +1860,7 @@ useEffect(() => {
       {manageStudent && (
         <ManageHoldingsModal
           student={manageStudent}
+          prices={prices}
           onSave={(h, cash) => { handleUpdateHoldings(manageStudent.id, h, cash); setManageId(null); }}
           onClose={() => setManageId(null)}
           onError={setErrorMsg}
