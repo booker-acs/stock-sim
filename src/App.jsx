@@ -886,13 +886,22 @@ function SetPinPanel({ student, onUpdatePin }) {
   );
 }
 
-function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onFixBalance, onError, fetchPrice }) {
+function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onUpdateClass, onError, fetchPrice }) {
   const [showManage, setShowManage] = useState(false);
 
   // Scroll to top when detail view opens
   useEffect(() => { window.scrollTo(0, 0); }, []);
   const [notes, setNotes] = useState(student.notes || "");
   const [notesSaved, setNotesSaved] = useState(false);
+  const [editingClass, setEditingClass] = useState(false);
+  const [classInput, setClassInput] = useState(student.className);
+
+  const handleSaveClass = () => {
+    if (classInput.trim() && classInput.trim() !== student.className) {
+      onUpdateClass(student.id, classInput.trim());
+    }
+    setEditingClass(false);
+  };
 
   const handleSaveNotes = () => {
     onUpdateNotes(student.id, notes);
@@ -929,13 +938,27 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           <button onClick={onBack} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "8px 14px", fontSize: 13 }}>← Back</button>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 26, letterSpacing: 3, color: "#e0e8ff" }}>{student.name}</div>
-            <div style={{ fontSize: 12, color: "#8899bb" }}>{student.className}</div>
+            {editingClass ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                <input
+                  value={classInput}
+                  onChange={e => setClassInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleSaveClass(); if (e.key === "Escape") setEditingClass(false); }}
+                  autoFocus
+                  style={{ background: "#0d1f3c", border: "1px solid #2a4a8a", borderRadius: 5, color: "#e0e8ff", padding: "3px 8px", fontSize: 12, outline: "none", width: 140 }}
+                />
+                <button onClick={handleSaveClass} style={{ background: "#22c55e", border: "none", borderRadius: 5, color: "#0d1f3c", cursor: "pointer", padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>Save</button>
+                <button onClick={() => setEditingClass(false)} style={{ background: "none", border: "none", color: "#8899bb", cursor: "pointer", fontSize: 13 }}>✕</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                <span style={{ fontSize: 12, color: "#8899bb" }}>{student.className}</span>
+                <button onClick={() => { setClassInput(student.className); setEditingClass(true); }} style={{ background: "none", border: "none", color: "#445577", cursor: "pointer", fontSize: 11, padding: 0 }} title="Edit class">✎</button>
+              </div>
+            )}
           </div>
           <button onClick={() => setShowManage(true)} style={{ background: "#1C4587", border: "1px solid #2a4a8a", borderRadius: 8, color: "#e0e8ff", cursor: "pointer", padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
             ✏️ Manage Holdings
-          </button>
-          <button onClick={() => onFixBalance(student.id)} title="Recalculate cash balance from current holdings" style={{ background: "#1a2d52", border: "1px solid #f59e0b55", borderRadius: 8, color: "#f59e0b", cursor: "pointer", padding: "8px 14px", fontSize: 12, fontWeight: 600 }}>
-            ⚖️ Fix Balance
           </button>
           <button onClick={() => onDelete(student.id)} style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 8, color: "#ef4444", cursor: "pointer", padding: "8px 14px", fontSize: 12 }}>Remove</button>
         </div>
@@ -1008,7 +1031,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
       </div>
       {/* Lower panels layout */}
 
- 
+  Row 1: Portfolio History (left) + Portfolio Diversity (right) */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
         {/* History — stretches to match Diversity height */}
         <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column" }}>
@@ -1745,6 +1768,10 @@ useEffect(() => {
     update(ref(db, `students/${studentId}`), { pinHash });
   };
 
+  const handleUpdateClass = (studentId, className) => {
+    update(ref(db, `students/${studentId}`), { className });
+  };
+
   const handleFixBalance = (studentId) => {
     const student = students.find(s => s.id === studentId);
     if (!student) return;
@@ -1798,7 +1825,7 @@ useEffect(() => {
 
   if (detailStudent) return (
     <>
-      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onFixBalance={handleFixBalance} onError={setErrorMsg} fetchPrice={fetchPrice}/>
+      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onUpdateClass={handleUpdateClass} onError={setErrorMsg} fetchPrice={fetchPrice}/>
       {errorMsg && <ErrorToast message={errorMsg} onClose={() => setErrorMsg(null)}/>}
       {confirmDeleteId && (
         <ConfirmModal
