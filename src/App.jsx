@@ -839,14 +839,15 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
   };
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
   const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
-  const totalCurrent = student.holdings.reduce((s, h) => {
+  const stockValue = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker]?.currentPrice;
     if (p == null || !h.purchasePrice || !h.spent) return s + h.spent;
-    const shares = h.spent / h.purchasePrice; // derive shares from cost basis, not stored value
-    return s + (p * shares);
+    return s + p * (h.spent / h.purchasePrice);
   }, 0);
-  const totalPnL = totalCurrent - totalInvested;
-  const totalPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
+  const portfolioValue = stockValue + cashLeft;
+  const totalPnL = portfolioValue - BUDGET;
+  const totalPct = (totalPnL / BUDGET) * 100;
+  const totalCurrent = stockValue; // for holdings detail table P&L per stock
   const todayPnL = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker];
     if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return s;
@@ -875,8 +876,8 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
 
         <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6677aa", marginBottom: 6 }}>
-            <span>BUDGET — {fmt$(totalInvested)} invested</span>
-            <span style={{ color: cashLeft > 500 ? "#f59e0b" : "#22c55e" }}>{fmt$(cashLeft)} unallocated</span>
+            <span>BUDGET — {fmt$(totalInvested)} invested · {fmt$(cashLeft)} cash</span>
+            <span style={{ color: totalPnL >= 0 ? "#22c55e" : "#ef4444" }}>{totalPnL >= 0 ? "+" : ""}{fmt$(totalPnL)} total P&L</span>
           </div>
           <div style={{ height: 5, background: "#0d1f3c", borderRadius: 4, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${Math.min((totalInvested / BUDGET) * 100, 100)}%`, background: "#1C4587", borderRadius: 4, transition: "width 0.4s ease" }}/>
@@ -885,8 +886,8 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
           {[
-            { label: "Portfolio Value", value: fmt$(totalCurrent + cashLeft), sub: `${fmt$(cashLeft)} cash` },
-            { label: "Total P&L", value: fmtPct(totalPct), sub: fmt$(totalPnL), color: totalPnL >= 0 ? "#22c55e" : "#ef4444" },
+            { label: "Portfolio Value", value: fmt$(portfolioValue), sub: `${fmt$(cashLeft)} cash` },
+            { label: "Total P&L", value: fmtPct(totalPct), sub: (totalPnL >= 0 ? "+" : "") + fmt$(totalPnL), color: totalPnL >= 0 ? "#22c55e" : "#ef4444" },
             { label: "Today's Change", value: fmtPct(todayPct), sub: (todayPnL >= 0 ? "+" : "") + fmt$(todayPnL), color: todayPnL >= 0 ? "#22c55e" : "#ef4444" }
           ].map(c => (
             <div key={c.label} style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 10, padding: "14px 16px" }}>
@@ -1106,13 +1107,15 @@ function exportCSV(students, prices) {
 function Leaderboard({ students, prices, onSelectStudent }) {
   const ranked = students.map(s => {
     const totalInvested = s.holdings.reduce((sum, h) => sum + h.spent, 0);
-    const totalCurrent = s.holdings.reduce((sum, h) => {
+    const cashLeft = s.cashBalance != null ? s.cashBalance : BUDGET - totalInvested;
+    const stockValue = s.holdings.reduce((sum, h) => {
       const p = prices[h.ticker]?.currentPrice;
       if (p == null || !h.purchasePrice || !h.spent) return sum + h.spent;
       return sum + p * (h.spent / h.purchasePrice);
     }, 0);
-    const pnl = totalCurrent - totalInvested;
-    const pct = totalInvested > 0 ? (pnl / totalInvested) * 100 : null;
+    const portfolioValue = stockValue + cashLeft;
+    const pnl = portfolioValue - BUDGET;
+    const pct = (pnl / BUDGET) * 100;
     const todayPnL = s.holdings.reduce((sum, h) => {
       const p = prices[h.ticker];
       if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return sum;
@@ -1120,13 +1123,9 @@ function Leaderboard({ students, prices, onSelectStudent }) {
       return sum + (p.currentPrice - p.previousClose) * derivedShares;
     }, 0);
     const hasData = s.holdings.some(h => prices[h.ticker]?.currentPrice);
+    const totalCurrent = portfolioValue;
     return { ...s, totalInvested, totalCurrent, pnl, pct, todayPnL, hasData };
-  }).sort((a, b) => {
-    if (a.pct == null && b.pct == null) return 0;
-    if (a.pct == null) return 1;
-    if (b.pct == null) return -1;
-    return b.pct - a.pct;
-  });
+  }).sort((a, b) => b.pct - a.pct);
 
   const medals = ["🥇", "🥈", "🥉"];
   const maxAbsPct = Math.max(...ranked.filter(s => s.pct != null).map(s => Math.abs(s.pct)), 1);
@@ -1208,12 +1207,16 @@ function ClassSummaryBar({ students, prices }) {
   if (!withHoldings.length) return null;
 
   const totalInvested = withHoldings.reduce((sum, s) => sum + s.holdings.reduce((a, h) => a + h.spent, 0), 0);
-  const totalCurrent = withHoldings.reduce((sum, s) =>
-    sum + s.holdings.reduce((a, h) => {
+  const totalCurrent = withHoldings.reduce((sum, s) => {
+    const totalInvested = s.holdings.reduce((a, h) => a + h.spent, 0);
+    const cashLeft = s.cashBalance != null ? s.cashBalance : BUDGET - totalInvested;
+    const stockVal = s.holdings.reduce((a, h) => {
       const p = prices[h.ticker]?.currentPrice;
       if (p == null || !h.purchasePrice || !h.spent) return a + h.spent;
       return a + p * (h.spent / h.purchasePrice);
-    }, 0), 0);
+    }, 0);
+    return sum + stockVal + cashLeft;
+  }, 0);
   const totalPnL = totalCurrent - totalInvested;
   const avgPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
 
@@ -1342,24 +1345,25 @@ function DailyHighlights({ students, prices }) {
 function StudentCard({ student, prices, onClick, onManage }) {
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
   const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
-  const currentVals = student.holdings.map(h => {
+  const stockValue = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker]?.currentPrice;
-    if (p == null || !h.purchasePrice || !h.spent) return h.spent;
-    return p * (h.spent / h.purchasePrice); // derive shares from cost basis
-  });
-  const totalCurrent = currentVals.reduce((a, b) => a + b, 0);
-  const pnl = totalCurrent - totalInvested;
-  const pct = totalInvested > 0 ? (pnl / totalInvested) * 100 : 0;
+    if (p == null || !h.purchasePrice || !h.spent) return s + h.spent;
+    return s + p * (h.spent / h.purchasePrice);
+  }, 0);
+  const portfolioValue = stockValue + cashLeft; // total portfolio including cash
+  const pnl = portfolioValue - BUDGET;          // gain/loss vs starting budget
+  const pct = (pnl / BUDGET) * 100;
   const todayPnL = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker];
     if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return s;
     const derivedShares = h.spent / h.purchasePrice;
     return s + (p.currentPrice - p.previousClose) * derivedShares;
   }, 0);
+  const todayPct = (todayPnL / BUDGET) * 100;
   const hasHoldings = student.holdings.length > 0;
   const isPos = pct >= 0;
   const todayPos = todayPnL >= 0;
-  const spark = hasHoldings ? [totalInvested, totalInvested * (1 + (pct * 0.3 / 100)), totalInvested + todayPnL * 0.5, totalCurrent] : [];
+  const spark = hasHoldings ? [BUDGET, BUDGET * (1 + (pct * 0.3 / 100)), BUDGET + todayPnL * 0.5, portfolioValue] : [];
 
   return (
     <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, overflow: "hidden", transition: "all 0.2s", position: "relative" }}
@@ -1406,8 +1410,8 @@ function StudentCard({ student, prices, onClick, onManage }) {
           <div>
             {hasHoldings ? (
               <>
-                <div style={{ fontSize: 12, color: "#8899bb" }}>Value: <span style={{ color: "#FFD966", fontWeight: 600 }}>{fmt$(totalCurrent)}</span></div>
-                <div style={{ fontSize: 11, color: todayPos ? "#22c55e" : "#ef4444", marginTop: 2 }}>Today: {fmtPct((totalInvested > 0 ? todayPnL / totalInvested : 0) * 100)}</div>
+                <div style={{ fontSize: 12, color: "#8899bb" }}>Value: <span style={{ color: "#FFD966", fontWeight: 600 }}>{fmt$(portfolioValue)}</span></div>
+                <div style={{ fontSize: 11, color: todayPos ? "#22c55e" : "#ef4444", marginTop: 2 }}>Today: {fmtPct(todayPct)}</div>
               </>
             ) : (
               <div style={{ fontSize: 11, color: "#445577", fontStyle: "italic" }}>Budget: {fmt$(BUDGET)}</div>
@@ -1727,12 +1731,14 @@ useEffect(() => {
             const sortStudents = (arr) => {
               const withStats = arr.map(s => {
                 const inv = s.holdings.reduce((a, h) => a + h.spent, 0);
-                const cur = s.holdings.reduce((a, h) => {
+                const cash = s.cashBalance != null ? s.cashBalance : BUDGET - inv;
+                const stockVal = s.holdings.reduce((a, h) => {
                   const p = prices[h.ticker]?.currentPrice;
                   if (p == null || !h.purchasePrice || !h.spent) return a + h.spent;
                   return a + p * (h.spent / h.purchasePrice);
                 }, 0);
-                const pct = inv > 0 ? ((cur - inv) / inv) * 100 : null;
+                const cur = stockVal + cash;
+                const pct = ((cur - BUDGET) / BUDGET) * 100;
                 const today = s.holdings.reduce((a, h) => {
                   const p = prices[h.ticker];
                   if (!p?.currentPrice || !h.purchasePrice || !h.spent) return a;
