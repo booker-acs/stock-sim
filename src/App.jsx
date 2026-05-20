@@ -91,7 +91,9 @@ function BarChart({ holdings, prices }) {
   const bars = holdings.map(h => {
     const p = prices[h.ticker];
     const current = p?.currentPrice;
-    const pnl = current != null ? (current - h.purchasePrice) * h.shares : null;
+    if (!h.purchasePrice || !h.spent) return { ...h, current, pnl: null, pct: null };
+    const derivedShares = h.spent / h.purchasePrice;
+    const pnl = current != null ? (current - h.purchasePrice) * derivedShares : null;
     const pct = current != null ? ((current - h.purchasePrice) / h.purchasePrice) * 100 : null;
     return { ...h, current, pnl, pct };
   }).filter(b => b.pct != null);
@@ -848,13 +850,32 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
   const totalPnL = portfolioValue - BUDGET;
   const totalPct = (totalPnL / BUDGET) * 100;
   const totalCurrent = stockValue; // for holdings detail table P&L per stock
+  // DEBUG
+  console.log("DEBUG", {
+    studentName: student.name,
+    cashBalance: student.cashBalance,
+    cashLeft,
+    totalInvested,
+    stockValue,
+    portfolioValue,
+    totalPnL,
+    holdings: student.holdings.map(h => ({
+      ticker: h.ticker,
+      spent: h.spent,
+      purchasePrice: h.purchasePrice,
+      storedShares: h.shares,
+      derivedShares: h.purchasePrice && h.spent ? h.spent / h.purchasePrice : null,
+      currentPrice: prices[h.ticker]?.currentPrice,
+      hasPriceInMap: !!prices[h.ticker],
+    }))
+  });
   const todayPnL = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker];
     if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return s;
     const derivedShares = h.spent / h.purchasePrice;
     return s + (p.currentPrice - p.previousClose) * derivedShares;
   }, 0);
-  const todayPct = totalInvested > 0 ? (todayPnL / totalInvested) * 100 : 0;
+  const todayPct = (todayPnL / BUDGET) * 100; // use BUDGET as denominator for consistency
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a1628 0%, #0f2040 50%, #0a1628 100%)", padding: "24px 20px", fontFamily: "'DM Sans', sans-serif", color: "#e0e8ff" }}>
@@ -922,12 +943,13 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
               {student.holdings.map(h => {
                 const p = prices[h.ticker];
                 const cur = p?.currentPrice;
-                const pnl = cur != null && h.shares != null ? (cur - h.purchasePrice) * h.shares : null;
+                const derivedShares = h.purchasePrice && h.spent ? h.spent / h.purchasePrice : h.shares;
+                const pnl = cur != null && derivedShares != null ? (cur - h.purchasePrice) * derivedShares : null;
                 return (
                   <div key={h.id} style={{ display: "grid", gridTemplateColumns: "70px 1fr 70px 90px 80px 80px 80px", gap: 8, padding: "10px 4px", borderTop: "1px solid #1a2d52", alignItems: "center" }}>
                     <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966", fontSize: 13 }}>{h.ticker}</div>
                     <div style={{ fontSize: 12, color: "#aabbd0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.companyName || h._companyName || "—"}</div>
-                    <div style={{ fontSize: 12, color: "#c0cfea" }}>{h.shares != null ? h.shares.toFixed(3) : "—"}</div>
+                    <div style={{ fontSize: 12, color: "#c0cfea" }}>{derivedShares != null ? derivedShares.toFixed(3) : "—"}</div>
                     <div style={{ fontSize: 11, color: "#6677aa" }}>{h.date || "—"}</div>
                     <div style={{ fontSize: 12, color: "#c0cfea" }}>{fmt$(h.purchasePrice)}</div>
                     <div style={{ fontSize: 12, color: "#c0cfea" }}>{fmt$(cur)}</div>
