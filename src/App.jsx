@@ -749,7 +749,7 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
   const iStyle = { background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "7px 10px", fontSize: 13, outline: "none", boxSizing: "border-box", width: "100%" };
 
   return (
-    <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
+    <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 6 }}>What-If Simulator</div>
       <div style={{ fontSize: 12, color: "#445577", marginBottom: 16 }}>
         Hypothetically test alternative investments without affecting this student's real portfolio.
@@ -867,12 +867,12 @@ function SetPinPanel({ student, onUpdatePin }) {
       <div style={{ fontSize: 12, color: "#445577", marginBottom: 14 }}>
         {student.pinHash ? "Enter a new 4-digit PIN to replace the current one." : "No PIN is set. Set one so this student can access their own portfolio."}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "flex-end" }}>
-        <div>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ flex: "0 0 140px" }}>
           <label style={{ fontSize: 10, color: "#5566aa", display: "block", marginBottom: 4, letterSpacing: 1 }}>NEW PIN</label>
           <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g,"")); setErr(""); }} placeholder="••••" style={iStyle}/>
         </div>
-        <div>
+        <div style={{ flex: "0 0 140px" }}>
           <label style={{ fontSize: 10, color: "#5566aa", display: "block", marginBottom: 4, letterSpacing: 1 }}>CONFIRM</label>
           <input type="password" inputMode="numeric" maxLength={4} value={pin2} onChange={e => { setPin2(e.target.value.replace(/\D/g,"")); setErr(""); }} placeholder="••••" style={iStyle}/>
         </div>
@@ -1009,7 +1009,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
       {/* Lower panels layout */}
 
       {/* Row 1: Portfolio History (left) + Portfolio Diversity (right) */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
         <div>
           {(student.history?.length >= 1) ? (
             <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
@@ -1036,7 +1036,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
       </div>
 
       {/* Row 2: What-If Simulator (left) + Teacher Notes (right) */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
         <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
         <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -1056,8 +1056,8 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
         </div>
       </div>
 
-      {/* Row 3: Set/Change PIN full width */}
-      <div style={{ marginTop: 16 }}>
+      {/* Row 3: Set/Change PIN — constrained width */}
+      <div style={{ marginTop: 16, maxWidth: 560 }}>
         <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
       </div>
 
