@@ -1735,9 +1735,8 @@ useEffect(() => {
                 const pct = inv > 0 ? ((cur - inv) / inv) * 100 : null;
                 const today = s.holdings.reduce((a, h) => {
                   const p = prices[h.ticker];
-                  if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return a;
-                  const derivedShares = h.spent / h.purchasePrice;
-                  return a + (p.currentPrice - p.previousClose) * derivedShares;
+                  if (!p?.currentPrice || !h.purchasePrice || !h.spent) return a;
+                  return a + (p.currentPrice - h.purchasePrice) * (h.spent / h.purchasePrice);
                 }, 0);
                 return { ...s, _pct: pct, _today: today };
               });
