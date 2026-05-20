@@ -26,7 +26,6 @@ const hashPin = async (pin) => {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
 };
 
-console.log("key loaded:", !!import.meta.env.VITE_ANTHROPIC_API_KEY);
 
 async function fetchStockPrice(ticker) {
   try {
@@ -129,13 +128,20 @@ function ErrorToast({ message, onClose }) {
 function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) {
   const [rows, setRows] = useState(
     student.holdings.length
-      ? student.holdings.map(h => ({ ...h, spentStr: String(h.spent) }))
+      ? student.holdings.map(h => ({
+          ...h,
+          spentStr: String(h.spent || 0),
+          purchasePrice: h.purchasePrice ?? null,
+          shares: h.shares ?? null,
+        }))
       : [{ id: uid(), ticker: "", date: new Date().toISOString().slice(0,10), spentStr: "", spent: 0, purchasePrice: null, shares: null }]
   );
   const [fetching, setFetching] = useState(false);
   const [fetchStatus, setFetchStatus] = useState({});
 
-  const totalSpent = rows.reduce((s, h) => s + (parseFloat(h.spentStr) || 0), 0);
+  const lockedSpent = rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).reduce((s, h) => s + (h.spent || 0), 0);
+  const newSpent = rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).reduce((s, h) => s + (parseFloat(h.spentStr) || 0), 0);
+  const totalSpent = lockedSpent + newSpent;
   const cashLeft = BUDGET - totalSpent;
   const overBudget = totalSpent > BUDGET;
   const pctUsed = Math.min((totalSpent / BUDGET) * 100, 100);
@@ -163,7 +169,7 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
     setFetching(true);
     const resolved = await Promise.all(valid.map(async h => {
       // skip re-fetch if price already locked and ticker/date unchanged
-      if (h.purchasePrice != null) return { ...h, spent: parseFloat(h.spentStr) };
+      if (h.purchasePrice != null && h.purchasePrice > 0) return { ...h, spent: h.spent }; // locked
       const ticker = h.ticker.trim().toUpperCase();
       const spent = parseFloat(h.spentStr);
       setFetchStatus(prev => ({ ...prev, [h.id]: `Looking up ${ticker} on ${h.date < today ? h.date : "today"}…` }));
@@ -177,7 +183,9 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
       return { ...h, ticker, spent, purchasePrice: pp, shares: pp ? spent / pp : null, date: actualDate, _companyName: companyName };
     }));
     setFetching(false);
-    onSave(resolved);
+    const totalLockedSpent = resolved.reduce((s, h) => s + (h.spent || 0), 0);
+    const newCashBalance = BUDGET - totalLockedSpent;
+    onSave(resolved, newCashBalance);
     onClose();
   };
 
@@ -287,7 +295,7 @@ function BulkAddModal({ classes, onAdd, onClose }) {
     const className = (cls === "" || !classes.length) ? newClass.trim() : cls;
     if (!className || !preview.length) return;
     preview.forEach(name => {
-      onAdd({ id: uid(), name, className, budget: BUDGET, holdings: [], notes: "", pinHash: null });
+      onAdd({ id: uid(), name, className, budget: BUDGET, holdings: [], notes: "", pinHash: null, cashBalance: BUDGET });
     });
     onClose();
   };
@@ -364,7 +372,7 @@ function AddStudentModal({ classes, onAdd, onClose }) {
     if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { setPinError("PIN must be exactly 4 digits."); return; }
     if (pin !== pin2) { setPinError("PINs do not match."); return; }
     const pinHash = await hashPin(pin);
-    onAdd({ id: uid(), name: name.trim(), className, budget: BUDGET, holdings: [], notes: "", pinHash });
+    onAdd({ id: uid(), name: name.trim(), className, budget: BUDGET, holdings: [], notes: "", pinHash, cashBalance: BUDGET });
     onClose();
   };
 
@@ -830,7 +838,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
     setTimeout(() => setNotesSaved(false), 2000);
   };
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
-  const cashLeft = BUDGET - totalInvested;
+  const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
   const totalCurrent = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker]?.currentPrice;
     return s + (p != null && h.shares != null ? p * h.shares : h.spent);
@@ -959,7 +967,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
       <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
 
       {showManage && (
-        <ManageHoldingsModal student={student} onSave={(h) => onUpdateHoldings(student.id, h)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
+        <ManageHoldingsModal student={student} onSave={(h, cash) => onUpdateHoldings(student.id, h, cash)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
       )}
     </div>
   );
@@ -1322,7 +1330,7 @@ function DailyHighlights({ students, prices }) {
 
 function StudentCard({ student, prices, onClick, onManage }) {
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
-  const cashLeft = BUDGET - totalInvested;
+  const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
   const currentVals = student.holdings.map(h => {
     const p = prices[h.ticker]?.currentPrice;
     return p != null && h.shares != null ? p * h.shares : h.spent;
@@ -1543,6 +1551,7 @@ useEffect(() => {
         holdings: s.holdings || [],
         history: s.history || [],
         notes: s.notes || "",
+        cashBalance: s.cashBalance != null ? s.cashBalance : BUDGET - (s.holdings || []).reduce((a, h) => a + (h.spent || 0), 0),
       }));
       setStudents(loaded);
     } else {
@@ -1565,11 +1574,13 @@ useEffect(() => {
   update(ref(db, `students/${studentId}`), { pinHash });
 };
 
-  const handleUpdateHoldings = (studentId, holdings) => {
-  update(ref(db, `students/${studentId}`), { holdings });
-  const tickers = holdings.map(h => h.ticker).filter(Boolean);
-  if (tickers.length) refreshPrices(tickers);
-};
+  const handleUpdateHoldings = (studentId, holdings, cashBalance) => {
+    const updateData = { holdings };
+    if (cashBalance !== undefined) updateData.cashBalance = cashBalance;
+    update(ref(db, `students/${studentId}`), updateData);
+    const tickers = holdings.map(h => h.ticker).filter(Boolean);
+    if (tickers.length) refreshPrices(tickers);
+  };
 
   const handleDelete = (id) => { setConfirmDeleteId(id); };
   const confirmDelete = () => {
@@ -1751,7 +1762,7 @@ useEffect(() => {
       {manageStudent && (
         <ManageHoldingsModal
           student={manageStudent}
-          onSave={(h) => { handleUpdateHoldings(manageStudent.id, h); setManageId(null); }}
+          onSave={(h, cash) => { handleUpdateHoldings(manageStudent.id, h, cash); setManageId(null); }}
           onClose={() => setManageId(null)}
           onError={setErrorMsg}
           fetchPrice={fetchPrice}
