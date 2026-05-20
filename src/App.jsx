@@ -841,41 +841,24 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
   };
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
   const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
-  const stockValue = student.holdings.reduce((s, h) => {
-    const p = prices[h.ticker]?.currentPrice;
-    if (p == null || !h.purchasePrice || !h.spent) return s + h.spent;
-    return s + p * (h.spent / h.purchasePrice);
-  }, 0);
+  // Single-pass calculation to ensure all values use identical price snapshots
+  const holdingStats = student.holdings.map(h => {
+    const priceData = prices[h.ticker];
+    const currentPrice = priceData?.currentPrice ?? null;
+    const previousClose = priceData?.previousClose ?? null;
+    const derivedShares = (h.purchasePrice && h.spent) ? h.spent / h.purchasePrice : 0;
+    const currentValue = (currentPrice != null) ? currentPrice * derivedShares : h.spent;
+    const todayChange = (currentPrice != null && previousClose != null)
+      ? (currentPrice - previousClose) * derivedShares : 0;
+    return { currentValue, todayChange };
+  });
+  const stockValue = holdingStats.reduce((s, h) => s + h.currentValue, 0);
   const portfolioValue = stockValue + cashLeft;
   const totalPnL = portfolioValue - BUDGET;
   const totalPct = (totalPnL / BUDGET) * 100;
-  const totalCurrent = stockValue; // for holdings detail table P&L per stock
-  // DEBUG
-  console.log("DEBUG", {
-    studentName: student.name,
-    cashBalance: student.cashBalance,
-    cashLeft,
-    totalInvested,
-    stockValue,
-    portfolioValue,
-    totalPnL,
-    holdings: student.holdings.map(h => ({
-      ticker: h.ticker,
-      spent: h.spent,
-      purchasePrice: h.purchasePrice,
-      storedShares: h.shares,
-      derivedShares: h.purchasePrice && h.spent ? h.spent / h.purchasePrice : null,
-      currentPrice: prices[h.ticker]?.currentPrice,
-      hasPriceInMap: !!prices[h.ticker],
-    }))
-  });
-  const todayPnL = student.holdings.reduce((s, h) => {
-    const p = prices[h.ticker];
-    if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return s;
-    const derivedShares = h.spent / h.purchasePrice;
-    return s + (p.currentPrice - p.previousClose) * derivedShares;
-  }, 0);
-  const todayPct = (todayPnL / BUDGET) * 100; // use BUDGET as denominator for consistency
+  const totalCurrent = stockValue;
+  const todayPnL = holdingStats.reduce((s, h) => s + h.todayChange, 0);
+  const todayPct = (todayPnL / BUDGET) * 100;
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a1628 0%, #0f2040 50%, #0a1628 100%)", padding: "24px 20px", fontFamily: "'DM Sans', sans-serif", color: "#e0e8ff" }}>
