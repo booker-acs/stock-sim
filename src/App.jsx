@@ -870,6 +870,9 @@ function SetPinPanel({ student, onUpdatePin }) {
 
 function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onFixBalance, onError, fetchPrice }) {
   const [showManage, setShowManage] = useState(false);
+
+  // Scroll to top when detail view opens
+  useEffect(() => { window.scrollTo(0, 0); }, []);
   const [notes, setNotes] = useState(student.notes || "");
   const [notesSaved, setNotesSaved] = useState(false);
 
@@ -985,40 +988,48 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           </>
         )}
       </div>
-      {/* Portfolio history chart */}
-      {(student.history?.length >= 1) && (
-        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-          <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 14 }}>Portfolio History</div>
-          <PortfolioHistoryChart history={student.history}/>
-        </div>
-      )}
+      {/* Two-column layout for lower panels */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "start" }}>
 
-      {/* Diversity + What-If */}
-      {student.holdings.length > 0 && (
-        <DiversityPanel holdings={student.holdings}/>
-      )}
-      <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
-
-      {/* Notes section */}
-      <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5 }}>Teacher Notes</div>
-          <button onClick={handleSaveNotes}
-            style={{ background: notesSaved ? "#14532d" : "#1a2d52", border: `1px solid ${notesSaved ? "#22c55e" : "#2a3f6b"}`, borderRadius: 6, color: notesSaved ? "#22c55e" : "#8899bb", cursor: "pointer", padding: "4px 14px", fontSize: 11, fontWeight: 600, transition: "all 0.2s" }}>
-            {notesSaved ? "✓ Saved" : "Save Notes"}
-          </button>
+        {/* Left column: Portfolio History + Diversity */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {(student.history?.length >= 1) && (
+            <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
+              <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 14 }}>Portfolio History</div>
+              <PortfolioHistoryChart history={student.history}/>
+            </div>
+          )}
+          {student.holdings.length > 0 && (
+            <DiversityPanel holdings={student.holdings}/>
+          )}
+          {/* Notes section */}
+          <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5 }}>Teacher Notes</div>
+              <button onClick={handleSaveNotes}
+                style={{ background: notesSaved ? "#14532d" : "#1a2d52", border: `1px solid ${notesSaved ? "#22c55e" : "#2a3f6b"}`, borderRadius: 6, color: notesSaved ? "#22c55e" : "#8899bb", cursor: "pointer", padding: "4px 14px", fontSize: 11, fontWeight: 600, transition: "all 0.2s" }}>
+                {notesSaved ? "✓ Saved" : "Save Notes"}
+              </button>
+            </div>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Add grading notes, observations, or feedback for this student…"
+              rows={4}
+              style={{ width: "100%", background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "10px 12px", fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}
+            />
+          </div>
         </div>
-        <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="Add grading notes, observations, or feedback for this student…"
-          rows={4}
-          style={{ width: "100%", background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "10px 12px", fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}
-        />
+
+        {/* Right column: What-If + Set PIN */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
+          <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
+        </div>
+
       </div>
 
-      {/* Set / Change PIN panel */}
-      <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
+
 
       {showManage && (
         <ManageHoldingsModal student={student} prices={prices} onSave={(h, cash) => onUpdateHoldings(student.id, h, cash)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
@@ -1295,6 +1306,52 @@ function ClassSummaryBar({ students, prices }) {
           {s.sub && <div style={{ fontSize: 10, color: "#445577", marginTop: 1 }}>{s.sub}</div>}
         </div>
       ))}
+    </div>
+  );
+}
+
+
+// ── Market Status Banner ──────────────────────────────────────────────────────
+function MarketStatusBanner() {
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    const getStatus = () => {
+      const now = new Date();
+      const day = now.getDay(); // 0=Sun, 6=Sat
+      if (day === 0 || day === 6) { setStatus("closed"); return; }
+
+      // Convert to ET (UTC-4 EDT / UTC-5 EST)
+      // Use Intl to get ET time accurately
+      const etStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
+      const et = new Date(etStr);
+      const h = et.getHours();
+      const m = et.getMinutes();
+      const mins = h * 60 + m;
+
+      if (mins >= 240 && mins < 570) setStatus("premarket");       // 4:00am - 9:30am
+      else if (mins >= 570 && mins < 960) setStatus("open");        // 9:30am - 4:00pm
+      else if (mins >= 960 && mins < 1200) setStatus("afterhours"); // 4:00pm - 8:00pm
+      else setStatus("closed");
+    };
+
+    getStatus();
+    const interval = setInterval(getStatus, 60000); // update every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!status || status === "closed") return null;
+
+  const config = {
+    premarket:   { label: "PRE-MARKET",   color: "#FFD966", bg: "#2a2200", border: "#FFD96655", dot: "#FFD966" },
+    open:        { label: "MARKET OPEN",  color: "#22c55e", bg: "#0d2a1a", border: "#22c55e55", dot: "#22c55e" },
+    afterhours:  { label: "AFTER HOURS",  color: "#a78bfa", bg: "#1a0f2e", border: "#a78bfa55", dot: "#a78bfa" },
+  }[status];
+
+  return (
+    <div style={{ background: config.bg, borderBottom: `1px solid ${config.border}`, padding: "6px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: config.dot, display: "inline-block", boxShadow: `0 0 6px ${config.dot}` }}/>
+      <span style={{ fontSize: 11, fontWeight: 700, color: config.color, letterSpacing: 2 }}>{config.label}</span>
     </div>
   );
 }
@@ -1775,6 +1832,7 @@ useEffect(() => {
           </div>
         </div>
       </div>
+      <MarketStatusBanner/>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
         {!students.length ? (
