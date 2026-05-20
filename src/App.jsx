@@ -546,7 +546,7 @@ function DiversityPanel({ holdings }) {
   const sectorEntries = Object.entries(sectors).sort((a, b) => b[1] - a[1]);
 
   return (
-    <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
+    <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 16 }}>Portfolio Diversity</div>
 
       {/* Score ring area */}
@@ -1008,42 +1008,38 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
       </div>
       {/* Lower panels layout */}
 
-      {/* Row 1: Portfolio History (left) + Portfolio Diversity (right) — fixed equal height */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, gridAutoRows: "320px" }}>
-        {/* History card — scrollable content */}
-        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+ 
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
+        {/* History — stretches to match Diversity height */}
+        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column" }}>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 14, flexShrink: 0 }}>Portfolio History</div>
           {(student.history?.length >= 1) ? (
-            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 120 }}>
               <PortfolioHistoryChart history={student.history}/>
             </div>
           ) : (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#445577", fontSize: 13 }}>
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#445577", fontSize: 13, textAlign: "center", minHeight: 80 }}>
               History builds up as prices are refreshed each session.
             </div>
           )}
         </div>
-        {/* Diversity card — scrollable content */}
-        <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {student.holdings.length > 0 ? (
-            <div style={{ height: "100%", overflowY: "auto" }}>
-              <DiversityPanel holdings={student.holdings}/>
-            </div>
-          ) : (
-            <div style={{ background: "#0f2347", border: "1px dashed #1e3560", borderRadius: 12, padding: "20px", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#445577", fontSize: 13 }}>
-              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 8 }}>Portfolio Diversity</div>
-              Add holdings to see diversity score.
-            </div>
-          )}
-        </div>
+        {/* Diversity — natural height, drives the row height */}
+        {student.holdings.length > 0 ? (
+          <DiversityPanel holdings={student.holdings}/>
+        ) : (
+          <div style={{ background: "#0f2347", border: "1px dashed #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#445577", fontSize: 13 }}>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 8 }}>Portfolio Diversity</div>
+            Add holdings to see diversity score.
+          </div>
+        )}
       </div>
 
-      {/* Row 2: What-If Simulator (left) + Teacher Notes (right) — fixed equal height */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, gridAutoRows: "420px" }}>
-        <div style={{ height: "100%", overflowY: "auto" }}>
-          <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
-        </div>
-        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/*     {/* Row 2: What-If Simulator (left) + Teacher Notes (right) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
+        {/* WhatIf — natural height, drives the row */}
+        <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
+        {/* Notes — stretches to match WhatIf height */}
+        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexShrink: 0 }}>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2 }}>Teacher Notes</div>
             <button onClick={handleSaveNotes}
