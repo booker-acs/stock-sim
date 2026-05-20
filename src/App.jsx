@@ -1010,14 +1010,14 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
 
       {/* Row 1: Portfolio History (left) + Portfolio Diversity (right) */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
-        <div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           {(student.history?.length >= 1) ? (
-            <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
+            <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", height: "100%" }}>
               <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 14 }}>Portfolio History</div>
               <PortfolioHistoryChart history={student.history}/>
             </div>
           ) : (
-            <div style={{ background: "#0f2347", border: "1px dashed #1e3560", borderRadius: 12, padding: "20px", textAlign: "center", color: "#445577", fontSize: 13 }}>
+            <div style={{ background: "#0f2347", border: "1px dashed #1e3560", borderRadius: 12, padding: "20px", textAlign: "center", color: "#445577", fontSize: 13, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 160 }}>
               <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 8 }}>Portfolio History</div>
               History builds up as prices are refreshed each session.
             </div>
@@ -1056,9 +1056,11 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
         </div>
       </div>
 
-      {/* Row 3: Set/Change PIN — constrained width */}
-      <div style={{ marginTop: 16, maxWidth: 560 }}>
-        <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
+      {/* Row 3: Set/Change PIN — centered */}
+      <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
+        <div style={{ width: "100%", maxWidth: 560 }}>
+          <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
+        </div>
       </div>
 
 
