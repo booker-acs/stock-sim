@@ -1150,8 +1150,8 @@ function Leaderboard({ students, prices, onSelectStudent }) {
             {[1, 0, 2].map(idx => {
               const s = ranked[idx];
               if (!s || s.pct == null) return <div key={idx} style={{ flex: 1 }}/>;
-              const heights = [100, 130, 80];
-              const h = heights[idx];
+              const rankHeights = [130, 100, 80]; // 1st=tallest, 2nd=medium, 3rd=shortest
+              const h = rankHeights[idx];
               return (
                 <div key={s.id} onClick={() => onSelectStudent(s.id)}
                   style={{ flex: 1, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -1160,7 +1160,7 @@ function Leaderboard({ students, prices, onSelectStudent }) {
                   <div style={{ fontSize: 11, color: "#6677aa" }}>{s.className}</div>
                   <div style={{ fontSize: idx === 0 ? 20 : 16, fontWeight: 700, color: s.pct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(s.pct)}</div>
                   <div style={{ width: "100%", height: h, background: s.pct >= 0 ? "#14532d" : "#3a0f0f", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${s.pct >= 0 ? "#22c55e44" : "#ef444444"}`, borderBottom: "none" }}>
-                    <div style={{ fontSize: 11, color: s.pct >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{idx + 1 === 1 ? "2nd" : idx + 1 === 2 ? "1st" : "3rd"}</div>
+                    <div style={{ fontSize: 11, color: s.pct >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{idx === 0 ? "1st" : idx === 1 ? "2nd" : "3rd"}</div>
                   </div>
                 </div>
               );
@@ -1308,7 +1308,6 @@ function DailyHighlights({ students, prices }) {
       pct: t.pctSum / t.count,
     }));
 
-  console.log("tickerStats:", tickerStats.length, tickerStats.slice(0,3));
   if (!studentStats.length && !tickerStats.length) return null;
 
   const topStudent = studentStats.length ? studentStats.reduce((a, b) => a.todayPnL > b.todayPnL ? a : b) : null;
