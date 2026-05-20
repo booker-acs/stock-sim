@@ -1285,17 +1285,26 @@ function DailyHighlights({ students, prices }) {
     })
     .filter(s => s.hasData);
 
-  // unique tickers with today % change
-  const tickerStats = [];
-  const seen = new Set();
+  // ticker stats based on average student P&L % for that ticker (not raw market move)
+  const tickerMap = {};
+  const todayStrTickers = new Date().toISOString().slice(0, 10);
   students.forEach(s => s.holdings.forEach(h => {
-    if (seen.has(h.ticker)) return;
     const p = prices[h.ticker];
-    if (!p?.currentPrice || !p?.previousClose) return;
-    seen.add(h.ticker);
-    const pct = ((p.currentPrice - p.previousClose) / p.previousClose) * 100;
-    tickerStats.push({ ticker: h.ticker, companyName: p.companyName || h.ticker, pct });
+    if (!p?.currentPrice || !h.purchasePrice || !h.spent) return;
+    const baseline = h.date === todayStrTickers ? h.purchasePrice : p.previousClose;
+    if (baseline == null) return;
+    const pct = ((p.currentPrice - baseline) / baseline) * 100;
+    if (!tickerMap[h.ticker]) {
+      tickerMap[h.ticker] = { ticker: h.ticker, companyName: p.companyName || h.ticker, pctSum: 0, count: 0 };
+    }
+    tickerMap[h.ticker].pctSum += pct;
+    tickerMap[h.ticker].count += 1;
   }));
+  const tickerStats = Object.values(tickerMap).map(t => ({
+    ticker: t.ticker,
+    companyName: t.companyName,
+    pct: t.pctSum / t.count, // average P&L % across all students who own it
+  })).filter(t => t.count > 0);
 
   if (!studentStats.length && !tickerStats.length) return null;
 
