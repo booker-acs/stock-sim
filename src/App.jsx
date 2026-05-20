@@ -849,9 +849,11 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
   const totalPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
   const todayPnL = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker];
-    if (!p?.currentPrice || !p?.previousClose || !h.shares) return s;
-    return s + (p.currentPrice - p.previousClose) * h.shares;
+    if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return s;
+    const derivedShares = h.spent / h.purchasePrice;
+    return s + (p.currentPrice - p.previousClose) * derivedShares;
   }, 0);
+  const todayPct = totalInvested > 0 ? (todayPnL / totalInvested) * 100 : 0;
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a1628 0%, #0f2040 50%, #0a1628 100%)", padding: "24px 20px", fontFamily: "'DM Sans', sans-serif", color: "#e0e8ff" }}>
@@ -885,7 +887,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           {[
             { label: "Portfolio Value", value: fmt$(totalCurrent + cashLeft), sub: `${fmt$(cashLeft)} cash` },
             { label: "Total P&L", value: fmtPct(totalPct), sub: fmt$(totalPnL), color: totalPnL >= 0 ? "#22c55e" : "#ef4444" },
-            { label: "Today's Change", value: todayPnL >= 0 ? `+${fmt$(todayPnL)}` : fmt$(todayPnL), sub: "vs prev close", color: todayPnL >= 0 ? "#22c55e" : "#ef4444" }
+            { label: "Today's Change", value: fmtPct(todayPct), sub: (todayPnL >= 0 ? "+" : "") + fmt$(todayPnL), color: todayPnL >= 0 ? "#22c55e" : "#ef4444" }
           ].map(c => (
             <div key={c.label} style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ fontSize: 10, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{c.label}</div>
@@ -1113,8 +1115,9 @@ function Leaderboard({ students, prices, onSelectStudent }) {
     const pct = totalInvested > 0 ? (pnl / totalInvested) * 100 : null;
     const todayPnL = s.holdings.reduce((sum, h) => {
       const p = prices[h.ticker];
-      if (!p?.currentPrice || !p?.previousClose || !h.shares) return sum;
-      return sum + (p.currentPrice - p.previousClose) * h.shares;
+      if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return sum;
+      const derivedShares = h.spent / h.purchasePrice;
+      return sum + (p.currentPrice - p.previousClose) * derivedShares;
     }, 0);
     const hasData = s.holdings.some(h => prices[h.ticker]?.currentPrice);
     return { ...s, totalInvested, totalCurrent, pnl, pct, todayPnL, hasData };
@@ -1257,8 +1260,9 @@ function DailyHighlights({ students, prices }) {
     .map(s => {
       const todayPnL = s.holdings.reduce((sum, h) => {
         const p = prices[h.ticker];
-        if (!p?.currentPrice || !p?.previousClose || !h.shares) return sum;
-        return sum + (p.currentPrice - p.previousClose) * h.shares;
+        if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return sum;
+        const derivedShares = h.spent / h.purchasePrice;
+        return sum + (p.currentPrice - p.previousClose) * derivedShares;
       }, 0);
       const hasData = s.holdings.some(h => prices[h.ticker]?.previousClose);
       return { id: s.id, name: s.name, todayPnL, hasData };
@@ -1348,8 +1352,9 @@ function StudentCard({ student, prices, onClick, onManage }) {
   const pct = totalInvested > 0 ? (pnl / totalInvested) * 100 : 0;
   const todayPnL = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker];
-    if (!p?.currentPrice || !p?.previousClose || !h.shares) return s;
-    return s + (p.currentPrice - p.previousClose) * h.shares;
+    if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return s;
+    const derivedShares = h.spent / h.purchasePrice;
+    return s + (p.currentPrice - p.previousClose) * derivedShares;
   }, 0);
   const hasHoldings = student.holdings.length > 0;
   const isPos = pct >= 0;
@@ -1402,7 +1407,7 @@ function StudentCard({ student, prices, onClick, onManage }) {
             {hasHoldings ? (
               <>
                 <div style={{ fontSize: 12, color: "#8899bb" }}>Value: <span style={{ color: "#FFD966", fontWeight: 600 }}>{fmt$(totalCurrent)}</span></div>
-                <div style={{ fontSize: 11, color: todayPos ? "#22c55e" : "#ef4444", marginTop: 2 }}>Today: {todayPos ? "+" : ""}{fmt$(todayPnL)}</div>
+                <div style={{ fontSize: 11, color: todayPos ? "#22c55e" : "#ef4444", marginTop: 2 }}>Today: {fmtPct((totalInvested > 0 ? todayPnL / totalInvested : 0) * 100)}</div>
               </>
             ) : (
               <div style={{ fontSize: 11, color: "#445577", fontStyle: "italic" }}>Budget: {fmt$(BUDGET)}</div>
@@ -1730,8 +1735,9 @@ useEffect(() => {
                 const pct = inv > 0 ? ((cur - inv) / inv) * 100 : null;
                 const today = s.holdings.reduce((a, h) => {
                   const p = prices[h.ticker];
-                  if (!p?.currentPrice || !p?.previousClose || !h.shares) return a;
-                  return a + (p.currentPrice - p.previousClose) * h.shares;
+                  if (!p?.currentPrice || !p?.previousClose || !h.purchasePrice || !h.spent) return a;
+                  const derivedShares = h.spent / h.purchasePrice;
+                  return a + (p.currentPrice - p.previousClose) * derivedShares;
                 }, 0);
                 return { ...s, _pct: pct, _today: today };
               });
