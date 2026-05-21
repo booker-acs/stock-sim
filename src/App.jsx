@@ -19,7 +19,7 @@ const fmt$ = (n) => n == null ? "—" : `$${Number(n).toLocaleString("en-US", { 
 const fmtPct = (n) => n == null ? "—" : `${n >= 0 ? "+" : ""}${Number(n).toFixed(2)}%`;
 const uid = () => Math.random().toString(36).slice(2, 9);
 const BUDGET = 10000;
-const SIM_START_DATE = "2026-05-21"; // any holding before this date is considered exploited
+const SIM_START_DATE = "2026-05-19"; // any holding before this date is considered exploited (sim started May 20)
 const ALERT_THRESHOLD = 5; // % move triggers badge
 
 // ── Arcade Mode Constants ────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ function isMarketOpen() {
   const mins = et.getHours() * 60 + et.getMinutes();
   return mins >= 570 && mins < 960; // 9:30am to 4:00pm
 }
-const TEACHER_PIN_HASH = "f823fed903848e7a12e6e04eca7a1a57e56a39a668f4911d48ef6386015646ed"; // sha256 of teacher PIN
+const TEACHER_PIN_HASH = "555e1980f5d793081110be32ab6bc31928eebaf008d1273f189c0ed29e50f2a4"; // sha256 of teacher PIN
 const hashPin = async (pin) => {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
