@@ -20,6 +20,17 @@ const fmtPct = (n) => n == null ? "—" : `${n >= 0 ? "+" : ""}${Number(n).toFix
 const uid = () => Math.random().toString(36).slice(2, 9);
 const BUDGET = 10000;
 const ALERT_THRESHOLD = 5; // % move triggers badge
+
+// Returns true if market is currently open (9:30am-4:00pm ET, weekdays)
+function isMarketOpen() {
+  const now = new Date();
+  const day = now.getDay();
+  if (day === 0 || day === 6) return false;
+  const etStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
+  const et = new Date(etStr);
+  const mins = et.getHours() * 60 + et.getMinutes();
+  return mins >= 570 && mins < 960; // 9:30am to 4:00pm
+}
 const TEACHER_PIN_HASH = "f823fed903848e7a12e6e04eca7a1a57e56a39a668f4911d48ef6386015646ed"; // sha256 of teacher PIN
 const hashPin = async (pin) => {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
@@ -918,9 +929,12 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
     const previousClose = priceData?.previousClose ?? null;
     const derivedShares = (h.purchasePrice && h.spent) ? h.spent / h.purchasePrice : 0;
     const currentValue = (currentPrice != null) ? currentPrice * derivedShares : h.spent;
+    const marketOpen = isMarketOpen();
     const todayBaseline = h.date === today ? h.purchasePrice : previousClose;
-    const todayChange = (currentPrice != null && todayBaseline != null)
-      ? (currentPrice - todayBaseline) * derivedShares : 0;
+    // When market is closed, previousClose may be stale/wrong — use purchasePrice instead
+    const safeBaseline = marketOpen ? todayBaseline : h.purchasePrice;
+    const todayChange = (currentPrice != null && safeBaseline != null)
+      ? (currentPrice - safeBaseline) * derivedShares : 0;
     return { currentValue, todayChange };
   });
   const stockValue = holdingStats.reduce((s, h) => s + h.currentValue, 0);
@@ -977,7 +991,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           {[
             { label: "Portfolio Value", value: fmt$(portfolioValue), sub: `${fmt$(cashLeft)} cash` },
             { label: "Total P&L", value: fmtPct(totalPct), sub: (totalPnL >= 0 ? "+" : "") + fmt$(totalPnL), color: totalPnL >= 0 ? "#22c55e" : "#ef4444" },
-            { label: "Today's Change", value: fmtPct(todayPct), sub: (todayPnL >= 0 ? "+" : "") + fmt$(todayPnL), color: todayPnL >= 0 ? "#22c55e" : "#ef4444" }
+            { label: isMarketOpen() ? "Today's Change" : "Since Purchase", value: fmtPct(todayPct), sub: (todayPnL >= 0 ? "+" : "") + fmt$(todayPnL), color: todayPnL >= 0 ? "#22c55e" : "#ef4444" }
           ].map(c => (
             <div key={c.label} style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ fontSize: 10, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{c.label}</div>
@@ -1031,7 +1045,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
       </div>
       {/* Lower panels layout */}
 
-  
+      {/* Row 1: Portfolio History (left) + Portfolio Diversity (right) */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
         {/* History — stretches to match Diversity height */}
         <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column" }}>
@@ -1231,11 +1245,12 @@ function Leaderboard({ students, prices, onSelectStudent }) {
     const pnl = portfolioValue - BUDGET;
     const pct = (pnl / BUDGET) * 100;
     const todayStrLB = new Date().toISOString().slice(0, 10);
+    const marketOpenLB = isMarketOpen();
     const todayPnL = s.holdings.reduce((sum, h) => {
       const p = prices[h.ticker];
       if (!p?.currentPrice || !h.purchasePrice || !h.spent) return sum;
       const derivedShares = h.spent / h.purchasePrice;
-      const baseline = h.date === todayStrLB ? h.purchasePrice : p.previousClose;
+      const baseline = marketOpenLB && h.date !== todayStrLB ? p.previousClose : h.purchasePrice;
       if (baseline == null) return sum;
       return sum + (p.currentPrice - baseline) * derivedShares;
     }, 0);
@@ -1422,11 +1437,12 @@ function DailyHighlights({ students, prices }) {
   const studentStats = students
     .map(s => {
       const todayStrDH = new Date().toISOString().slice(0, 10);
+      const marketOpenDH = isMarketOpen();
       const todayPnL = s.holdings.reduce((sum, h) => {
         const p = prices[h.ticker];
         if (!p?.currentPrice || !h.purchasePrice || !h.spent) return sum;
         const derivedShares = h.spent / h.purchasePrice;
-        const baseline = h.date === todayStrDH ? h.purchasePrice : p.previousClose;
+        const baseline = marketOpenDH && h.date !== todayStrDH ? p.previousClose : h.purchasePrice;
         if (baseline == null) return sum;
         return sum + (p.currentPrice - baseline) * derivedShares;
       }, 0);
@@ -1441,7 +1457,8 @@ function DailyHighlights({ students, prices }) {
   students.forEach(s => s.holdings.forEach(h => {
     const p = prices[h.ticker];
     if (!p?.currentPrice || !h.purchasePrice || !h.spent) return;
-    const baseline = h.date === todayStrTickers ? h.purchasePrice : p.previousClose;
+    const marketOpenTickers = isMarketOpen();
+    const baseline = marketOpenTickers && h.date !== todayStrTickers ? p.previousClose : h.purchasePrice;
     if (baseline == null) return;
     const pct = ((p.currentPrice - baseline) / baseline) * 100;
     if (!tickerMap[h.ticker]) {
@@ -1528,11 +1545,12 @@ function StudentCard({ student, prices, onClick, onManage }) {
   const pnl = portfolioValue - BUDGET;          // gain/loss vs starting budget
   const pct = (pnl / BUDGET) * 100;
   const todayStrCard = new Date().toISOString().slice(0, 10);
+  const marketOpenCard = isMarketOpen();
   const todayPnL = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker];
     if (!p?.currentPrice || !h.purchasePrice || !h.spent) return s;
     const derivedShares = h.spent / h.purchasePrice;
-    const baseline = h.date === todayStrCard ? h.purchasePrice : p.previousClose;
+    const baseline = marketOpenCard && h.date !== todayStrCard ? p.previousClose : h.purchasePrice;
     if (baseline == null) return s;
     return s + (p.currentPrice - baseline) * derivedShares;
   }, 0);
