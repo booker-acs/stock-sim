@@ -1031,7 +1031,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
       </div>
       {/* Lower panels layout */}
 
-  Row 1: Portfolio History (left) + Portfolio Diversity (right) */}
+  
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
         {/* History — stretches to match Diversity height */}
         <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column" }}>
