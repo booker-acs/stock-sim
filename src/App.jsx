@@ -19,9 +19,9 @@ const fmt$ = (n) => n == null ? "—" : `$${Number(n).toLocaleString("en-US", { 
 const fmtPct = (n) => n == null ? "—" : `${n >= 0 ? "+" : ""}${Number(n).toFixed(2)}%`;
 const uid = () => Math.random().toString(36).slice(2, 9);
 const BUDGET = 10000;
+const SIM_START_DATE = "2026-05-21"; // any holding before this date is considered exploited
 const ALERT_THRESHOLD = 5; // % move triggers badge
 
-<<<<<<< HEAD
 // ── Arcade Mode Constants ────────────────────────────────────────────────────
 const ARCADE_BUDGET = 10000;
 const ARCADE_SESSION_MINUTES = 10;
@@ -155,6 +155,20 @@ const AI_CHALLENGER_ROSTER = [
       { ticker: "JPM", spent: 2500 },
     ]
   },
+  {
+    id: "mr-walsh",
+    name: "Mr. Walsh", emoji: "💻",
+    portrait: "/portraits/mrwalsh.webp",
+    quote: "Booker told me to play it safe. I don't listen to Booker.",
+    description: "The evil Booker. Actually reads earnings reports.",
+    picks: [
+      { ticker: "SNDK", spent: 2000 },
+      { ticker: "GE", spent: 2000 },
+      { ticker: "APLD", spent: 2000 },
+      { ticker: "AAPL", spent: 2000 },
+      { ticker: "NFLX", spent: 2000 },
+    ]
+  },
 ];
 
 // Event flavor text templates — {company} and {pct} filled in at runtime
@@ -207,8 +221,6 @@ function simulatePrice(currentPrice, personality, tick) {
   return { newPrice: Math.max(0.01, newPrice), changePct };
 }
 
-=======
->>>>>>> cfa101ded9b1c697c22e1fdcdfd0f39fb8251535
 // Returns true if market is currently open (9:30am-4:00pm ET, weekdays)
 function isMarketOpen() {
   const now = new Date();
@@ -326,7 +338,7 @@ function ErrorToast({ message, onClose }) {
   );
 }
 
-function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, prices }) {
+function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, prices, teacherMode }) {
   const [rows, setRows] = useState(
     student.holdings.length
       ? student.holdings.map(h => ({
@@ -341,6 +353,8 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
   const [fetchStatus, setFetchStatus] = useState({});
 
   const [soldProceeds, setSoldProceeds] = useState(0); // tracks cash from selling at market value
+  const [sellAmounts, setSellAmounts] = useState({}); // { holdingId: amountStr } for partial sells
+  const [addingTo, setAddingTo] = useState({}); // { ticker: amountStr } for adding to existing holding
 
   const lockedSpent = rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).reduce((s, h) => s + (h.spent || 0), 0);
   const newSpent = rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).reduce((s, h) => s + (parseFloat(h.spentStr) || 0), 0);
@@ -359,13 +373,45 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
   const removeRow = (id) => {
     const h = rows.find(r => r.id === id);
     if (h && h.purchasePrice && h.purchasePrice > 0 && h.spent) {
-      // Selling a locked holding — credit current market value, not original cost
       const currentPrice = prices[h.ticker]?.currentPrice;
       const derivedShares = h.spent / h.purchasePrice;
       const marketValue = currentPrice ? currentPrice * derivedShares : h.spent;
       setSoldProceeds(prev => prev + marketValue);
     }
     setRows(prev => prev.filter(r => r.id !== id));
+    setSellAmounts(prev => { const n = {...prev}; delete n[id]; return n; });
+  };
+
+  const partialSell = (id) => {
+    const h = rows.find(r => r.id === id);
+    if (!h) return;
+    const sellAmt = parseFloat(sellAmounts[id] || 0);
+    if (!sellAmt || sellAmt <= 0 || sellAmt > h.spent) return;
+    const currentPrice = prices[h.ticker]?.currentPrice || h.purchasePrice;
+    const derivedShares = h.spent / h.purchasePrice;
+    const sharesToSell = derivedShares * (sellAmt / h.spent);
+    const proceeds = sharesToSell * currentPrice;
+    setSoldProceeds(prev => prev + proceeds);
+    const remainingSpent = h.spent - sellAmt;
+    if (remainingSpent < 0.01) {
+      setRows(prev => prev.filter(r => r.id !== id));
+    } else {
+      setRows(prev => prev.map(r => r.id !== id ? r : {
+        ...r,
+        spent: remainingSpent,
+        spentStr: remainingSpent.toFixed(2),
+        shares: derivedShares - sharesToSell,
+      }));
+    }
+    setSellAmounts(prev => { const n = {...prev}; delete n[id]; return n; });
+  };
+
+  const addToHolding = (ticker) => {
+    const addAmt = parseFloat(addingTo[ticker] || 0);
+    if (!addAmt || addAmt <= 0) return;
+    // Create a new unlocked row for the same ticker at today's price
+    setRows(prev => [...prev, { id: uid(), ticker, date: today, spentStr: String(addAmt), spent: addAmt, purchasePrice: null, shares: null }]);
+    setAddingTo(prev => { const n = {...prev}; delete n[ticker]; return n; });
   };
   const updateRow = (id, field, val) => setRows(prev => prev.map(h => {
     if (h.id !== id) return h;
@@ -433,19 +479,54 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
         {rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).length > 0 && (
           <>
             <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>CURRENT HOLDINGS — locked in</div>
-            {rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).map(h => (
-              <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 8, padding: "10px 12px" }}>
-                <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966", fontSize: 14, width: 70 }}>{h.ticker}</div>
-                <div style={{ flex: 1, fontSize: 12, color: "#8899bb" }}>
-                  {fmt$(h.spent)} invested · {fmt$(h.purchasePrice)}/share · {h.spent && h.purchasePrice ? (h.spent / h.purchasePrice).toFixed(4) : "—"} shares
+            {rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).map(h => {
+              const currentPrice = prices[h.ticker]?.currentPrice;
+              const derivedShares = h.spent / h.purchasePrice;
+              const currentValue = currentPrice ? currentPrice * derivedShares : h.spent;
+              const pnl = currentValue - h.spent;
+              const sellAmt = sellAmounts[h.id] || "";
+              const addAmt = addingTo[h.ticker] || "";
+              const maxSell = h.spent;
+              return (
+                <div key={h.id} style={{ marginBottom: 10, background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 8, padding: "10px 12px" }}>
+                  {/* Main row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966", fontSize: 14, width: 70 }}>{h.ticker}</div>
+                    <div style={{ flex: 1, fontSize: 12, color: "#8899bb" }}>
+                      {fmt$(h.spent)} · {derivedShares.toFixed(4)} shares · now {fmt$(currentValue)}
+                      <span style={{ marginLeft: 6, color: pnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{pnl >= 0 ? "+" : ""}{fmt$(pnl)}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#22c55e", background: "#0d2a1a", border: "1px solid #22c55e33", borderRadius: 4, padding: "2px 7px" }}>🔒</div>
+                  </div>
+                  {/* Sell partial row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, paddingTop: 8, borderTop: "1px solid #0d1f3c" }}>
+                    <span style={{ fontSize: 11, color: "#6677aa", width: 60, flexShrink: 0 }}>Sell $</span>
+                    <input type="number" min="0" max={maxSell} value={sellAmt}
+                      onChange={e => setSellAmounts(prev => ({ ...prev, [h.id]: e.target.value }))}
+                      placeholder={`0 – ${fmt$(maxSell)}`}
+                      style={{ ...iStyle, flex: 1, padding: "4px 8px", fontSize: 11 }}/>
+                    <button onClick={() => setSellAmounts(prev => ({ ...prev, [h.id]: String(maxSell) }))}
+                      style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 5, color: "#8899bb", cursor: "pointer", padding: "4px 8px", fontSize: 10 }}>All</button>
+                    <button onClick={() => partialSell(h.id)} disabled={!sellAmt || parseFloat(sellAmt) <= 0}
+                      style={{ background: parseFloat(sellAmt) > 0 ? "#3a0f0f" : "#1a1a2a", border: `1px solid ${parseFloat(sellAmt) > 0 ? "#ef4444" : "#2a2a3a"}`, borderRadius: 5, color: parseFloat(sellAmt) > 0 ? "#ef4444" : "#445577", cursor: parseFloat(sellAmt) > 0 ? "pointer" : "default", padding: "4px 10px", fontSize: 11, fontWeight: 600 }}>
+                      Sell
+                    </button>
+                  </div>
+                  {/* Add to holding row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                    <span style={{ fontSize: 11, color: "#6677aa", width: 60, flexShrink: 0 }}>Buy more $</span>
+                    <input type="number" min="0" value={addAmt}
+                      onChange={e => setAddingTo(prev => ({ ...prev, [h.ticker]: e.target.value }))}
+                      placeholder="Amount ($)"
+                      style={{ ...iStyle, flex: 1, padding: "4px 8px", fontSize: 11 }}/>
+                    <button onClick={() => addToHolding(h.ticker)} disabled={!addAmt || parseFloat(addAmt) <= 0}
+                      style={{ background: parseFloat(addAmt) > 0 ? "#14532d" : "#1a1a2a", border: `1px solid ${parseFloat(addAmt) > 0 ? "#22c55e" : "#2a2a3a"}`, borderRadius: 5, color: parseFloat(addAmt) > 0 ? "#22c55e" : "#445577", cursor: parseFloat(addAmt) > 0 ? "pointer" : "default", padding: "4px 10px", fontSize: 11, fontWeight: 600 }}>
+                      Buy
+                    </button>
+                  </div>
                 </div>
-                <div style={{ fontSize: 10, color: "#22c55e", background: "#0d2a1a", border: "1px solid #22c55e33", borderRadius: 4, padding: "2px 7px", marginRight: 4 }}>🔒 LOCKED</div>
-                <button onClick={() => removeRow(h.id)}
-                  style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ef4444", cursor: "pointer", padding: "4px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
-                  Sell
-                </button>
-              </div>
-            ))}
+              );
+            })}
             <div style={{ height: 1, background: "#1e3560", margin: "12px 0" }}/>
           </>
         )}
@@ -462,13 +543,17 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
               ))}
             </div>
             {rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).map(h => {
-              const isPast = h.date && h.date < today;
+              const isPast = teacherMode && h.date && h.date < today;
               const status = fetchStatus[h.id];
               return (
                 <div key={h.id} style={{ marginBottom: 10 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, alignItems: "center" }}>
                     <input value={h.ticker} onChange={e => updateRow(h.id, "ticker", e.target.value)} placeholder="AAPL" style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
-                    <input type="date" value={h.date} onChange={e => updateRow(h.id, "date", e.target.value)} style={{ ...iStyle, borderColor: isPast ? "#f59e0b66" : "#2a3f6b" }}/>
+                    <input type="date" value={h.date}
+                      min={teacherMode ? undefined : today}
+                      max={teacherMode ? undefined : today}
+                      onChange={e => updateRow(h.id, "date", e.target.value)}
+                      style={{ ...iStyle, borderColor: isPast && teacherMode ? "#f59e0b66" : "#2a3f6b" }}/>
                     <input type="number" min="0" value={h.spentStr} onChange={e => updateRow(h.id, "spentStr", e.target.value)} placeholder="Amount ($)" style={{ ...iStyle, borderColor: overBudget ? "#ef444466" : "#2a3f6b" }}/>
                     <button onClick={() => removeRow(h.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 14, height: 36, width: 32 }}>✕</button>
                   </div>
@@ -1819,7 +1904,7 @@ function SetPinPanel({ student, onUpdatePin }) {
   );
 }
 
-function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onUpdateClass, onError, fetchPrice }) {
+function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onUpdateClass, onError, fetchPrice, teacherMode }) {
   const [showManage, setShowManage] = useState(false);
 
   // Scroll to top when detail view opens
@@ -2025,7 +2110,7 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
 
 
       {showManage && (
-        <ManageHoldingsModal student={student} prices={prices} onSave={(h, cash) => onUpdateHoldings(student.id, h, cash)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
+        <ManageHoldingsModal student={student} prices={prices} teacherMode={teacherMode} onSave={(h, cash) => onUpdateHoldings(student.id, h, cash)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
       )}
     </div>
   );
@@ -2793,11 +2878,32 @@ useEffect(() => {
     update(ref(db, `students/${studentId}`), { cashBalance: correctBalance });
   };
 
-  const handleFixAllBalances = () => {
-    students.forEach(s => {
-      const correctBalance = BUDGET - (s.holdings || []).reduce((sum, h) => sum + (h.spent || 0), 0);
-      update(ref(db, `students/${s.id}`), { cashBalance: correctBalance });
-    });
+  const handleFixAllBalances = async () => {
+    for (const s of students) {
+      let holdings = [...(s.holdings || [])];
+      let changed = false;
+
+      // Fix exploited holdings — any with date before SIM_START_DATE
+      const exploited = holdings.filter(h => h.date && h.date < SIM_START_DATE);
+      if (exploited.length) {
+        const tickers = [...new Set(exploited.map(h => h.ticker))];
+        const priceMap = {};
+        await Promise.all(tickers.map(async t => {
+          const p = await fetchStockPrice(t);
+          if (p?.currentPrice) priceMap[t] = p.currentPrice;
+        }));
+        holdings = holdings.map(h => {
+          if (!h.date || h.date >= SIM_START_DATE) return h;
+          const newPrice = priceMap[h.ticker] || h.purchasePrice;
+          return { ...h, purchasePrice: newPrice, shares: h.spent / newPrice, date: SIM_START_DATE };
+        });
+        changed = true;
+      }
+
+      const correctBalance = BUDGET - holdings.reduce((sum, h) => sum + (h.spent || 0), 0);
+      update(ref(db, `students/${s.id}`), { holdings: changed ? holdings : s.holdings, cashBalance: correctBalance });
+      await new Promise(r => setTimeout(r, 150)); // avoid rate limiting
+    }
   };
 
   const handleUpdateHoldings = (studentId, holdings, cashBalance) => {
@@ -2876,7 +2982,7 @@ useEffect(() => {
           🔑 TEACHER MODE ACTIVE — PIN BYPASS ENABLED
         </div>
       )}
-      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onUpdateClass={handleUpdateClass} onError={setErrorMsg} fetchPrice={fetchPrice}/>
+      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onUpdateClass={handleUpdateClass} onError={setErrorMsg} fetchPrice={fetchPrice} teacherMode={teacherMode}/>
       {errorMsg && <ErrorToast message={errorMsg} onClose={() => setErrorMsg(null)}/>}
       {confirmDeleteId && (
         <ConfirmModal
@@ -3047,6 +3153,7 @@ useEffect(() => {
         <ManageHoldingsModal
           student={manageStudent}
           prices={prices}
+          teacherMode={teacherMode}
           onSave={(h, cash) => { handleUpdateHoldings(manageStudent.id, h, cash); setManageId(null); }}
           onClose={() => setManageId(null)}
           onError={setErrorMsg}
