@@ -2901,7 +2901,13 @@ useEffect(() => {
     students.forEach(s => {
       const totalSpent = (s.holdings || []).reduce((sum, h) => sum + (h.spent || 0), 0);
       const hasOldDate = (s.holdings || []).some(h => h.date && h.date < SIM_START_DATE);
-      if (totalSpent > BUDGET * 1.1) corrupted.push(s); // more than 10% over budget = corrupted
+      // Corrupted if: spent > budget, OR cashBalance exceeds total stock value + starting budget
+      const stockValue = (s.holdings || []).reduce((sum, h) => {
+        const p = h.purchasePrice;
+        return sum + (p ? h.spent : 0); // use spent as proxy since we don't have live prices here
+      }, 0);
+      const cashCorrupt = s.cashBalance != null && s.cashBalance > stockValue + BUDGET;
+      if (totalSpent > BUDGET * 1.1 || cashCorrupt) corrupted.push(s);
       else if (hasOldDate) needsDateFix.push(s);
     });
 
@@ -2927,12 +2933,20 @@ useEffect(() => {
       const tickers = [...new Set(exploited.map(h => h.ticker))];
       const priceMap = {};
       await Promise.all(tickers.map(async t => {
-        const p = await fetchStockPrice(t);
-        if (p?.currentPrice) priceMap[t] = p.currentPrice;
+        try {
+          const res = await fetch('/api/proxy', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticker: t })
+          });
+          const data = await res.json();
+          const price = data.currentPrice || data.previousClose;
+          if (price) priceMap[t] = price;
+        } catch(e) {}
       }));
       holdings = holdings.map(h => {
         if (!h.date || h.date >= SIM_START_DATE) return h;
-        const newPrice = priceMap[h.ticker] || h.purchasePrice;
+        const newPrice = priceMap[h.ticker];
+        if (!newPrice) return h; // skip if price fetch failed
         return { ...h, purchasePrice: newPrice, shares: h.spent / newPrice, date: SIM_START_DATE };
       });
       const correctBalance = BUDGET - holdings.reduce((sum, h) => sum + (h.spent || 0), 0);
