@@ -21,6 +21,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const BUDGET = 10000;
 const ALERT_THRESHOLD = 5; // % move triggers badge
 
+<<<<<<< HEAD
 // ── Arcade Mode Constants ────────────────────────────────────────────────────
 const ARCADE_BUDGET = 10000;
 const ARCADE_SESSION_MINUTES = 10;
@@ -206,6 +207,8 @@ function simulatePrice(currentPrice, personality, tick) {
   return { newPrice: Math.max(0.01, newPrice), changePct };
 }
 
+=======
+>>>>>>> cfa101ded9b1c697c22e1fdcdfd0f39fb8251535
 // Returns true if market is currently open (9:30am-4:00pm ET, weekdays)
 function isMarketOpen() {
   const now = new Date();
