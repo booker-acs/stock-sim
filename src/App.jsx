@@ -1682,7 +1682,20 @@ useEffect(() => {
   const [sortBy, setSortBy] = useState("default"); // "default"|"pct_desc"|"pct_asc"|"name"|"today"
   const [pinPrompt, setPinPrompt] = useState(null); // { studentId, mode: "detail"|"manage" }
   const [pinError, setPinErrorState] = useState("");
+  const [teacherMode, setTeacherMode] = useState(false);
+  const [teacherModePrompt, setTeacherModePrompt] = useState(false);
   const fileRef = useRef();
+
+  // Validate PIN for teacher mode activation
+  const handleTeacherModePin = async (hash) => {
+    if (hash === TEACHER_PIN_HASH) {
+      setTeacherMode(true);
+      setTeacherModePrompt(false);
+      setPinErrorState("");
+    } else {
+      setPinErrorState("Incorrect PIN. Try again.");
+    }
+  };
 
   // Validate a submitted PIN hash against a student
   const handlePinSubmit = async (hash) => {
@@ -1697,11 +1710,16 @@ useEffect(() => {
       else setManageId(studentId);
     } else {
       setPinErrorState("Incorrect PIN. Try again.");
-      // We surface this back through the modal via re-render with error
     }
   };
 
   const requestAccess = (studentId, mode) => {
+    if (teacherMode) {
+      // Skip PIN entirely in teacher mode
+      if (mode === "detail") setDetail(studentId);
+      else setManageId(studentId);
+      return;
+    }
     setPinErrorState("");
     setPinPrompt({ studentId, mode });
   };
@@ -1843,6 +1861,11 @@ useEffect(() => {
 
   if (detailStudent) return (
     <>
+      {teacherMode && (
+        <div style={{ background: "#0d2a1a", borderBottom: "1px solid #22c55e44", padding: "6px 24px", textAlign: "center", fontSize: 11, color: "#22c55e", fontWeight: 700, letterSpacing: 1 }}>
+          🔑 TEACHER MODE ACTIVE — PIN BYPASS ENABLED
+        </div>
+      )}
       <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onUpdateClass={handleUpdateClass} onError={setErrorMsg} fetchPrice={fetchPrice}/>
       {errorMsg && <ErrorToast message={errorMsg} onClose={() => setErrorMsg(null)}/>}
       {confirmDeleteId && (
@@ -1890,6 +1913,19 @@ useEffect(() => {
                 </button>
               ))}
             </div>
+            {/* Teacher Mode Toggle */}
+            {teacherMode ? (
+              <button onClick={() => setTeacherMode(false)}
+                style={{ background: "#14532d", border: "1px solid #22c55e88", borderRadius: 8, color: "#22c55e", cursor: "pointer", padding: "7px 14px", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", display: "inline-block", boxShadow: "0 0 6px #22c55e" }}/>
+                Teacher Mode ON
+              </button>
+            ) : (
+              <button onClick={() => { setPinErrorState(""); setTeacherModePrompt(true); }}
+                style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "7px 14px", fontSize: 12 }}>
+                🔑 Teacher Mode
+              </button>
+            )}
             <button onClick={() => refreshPrices(allTickers)} disabled={refreshing || !allTickers.length}
               style={{ background: refreshing ? "#1a2d52" : "#1C4587", border: "1px solid #2a4a8a", borderRadius: 8, color: refreshing ? "#5566aa" : "#e0e8ff", cursor: refreshing ? "default" : "pointer", padding: "7px 14px", fontSize: 12 }}>
               {refreshing ? "⟳ Updating…" : "⟳ Refresh"}
@@ -2027,6 +2063,14 @@ useEffect(() => {
           />
         );
       })()}
+      {teacherModePrompt && (
+        <PinModal
+          studentName="Teacher Access"
+          pinError={pinError}
+          onSuccess={handleTeacherModePin}
+          onCancel={() => { setTeacherModePrompt(false); setPinErrorState(""); }}
+        />
+      )}
     </div>
   );
 }
