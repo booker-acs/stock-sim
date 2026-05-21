@@ -1140,7 +1140,7 @@ function PinModal({ studentName, onSuccess, onCancel, pinError: externalError })
 
         {/* PIN display */}
         <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 20 }}>
-          {[0,1,2,3,4].map(i => (
+          {[0,1,2,3].map(i => (
             <div key={i} style={{ width: 16, height: 16, borderRadius: "50%", background: pin.length > i ? "#FFD966" : "#1a2d52", border: "2px solid " + (pin.length > i ? "#FFD966" : "#2a3f6b"), transition: "all 0.15s" }}/>
           ))}
         </div>
@@ -1533,7 +1533,7 @@ function DailyHighlights({ students, prices }) {
   );
 }
 
-function StudentCard({ student, prices, onClick, onManage }) {
+function StudentCard({ student, prices, onClick, onManage, isUnlocked }) {
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
   const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
   const stockValue = student.holdings.reduce((s, h) => {
@@ -1573,6 +1573,7 @@ function StudentCard({ student, prices, onClick, onManage }) {
               <div style={{ fontWeight: 700, fontSize: 14, color: "#e0e8ff" }}>{student.name}</div>
               {student.notes && <span title="Has teacher notes" style={{ width: 7, height: 7, borderRadius: "50%", background: "#FFD966", flexShrink: 0, display: "inline-block" }}/>}
               {!student.pinHash && <span title="No PIN set — teacher PIN required" style={{ fontSize: 9, color: "#ef4444", background: "#3a0f0f", border: "1px solid #ef444444", borderRadius: 3, padding: "1px 4px", letterSpacing: 0.5 }}>NO PIN</span>}
+              {isUnlocked && <span title="Unlocked this session" style={{ fontSize: 9, color: "#22c55e", background: "#0d2a1a", border: "1px solid #22c55e44", borderRadius: 3, padding: "1px 4px", letterSpacing: 0.5 }}>🔓</span>}
             </div>
             <div style={{ fontSize: 11, color: "#5566aa", marginTop: 1 }}>
               {hasHoldings ? (
@@ -1684,6 +1685,7 @@ useEffect(() => {
   const [pinError, setPinErrorState] = useState("");
   const [teacherMode, setTeacherMode] = useState(false);
   const [teacherModePrompt, setTeacherModePrompt] = useState(false);
+  const [unlockedStudents, setUnlockedStudents] = useState(new Set()); // studentIds unlocked this session
   const fileRef = useRef();
 
   // Validate PIN for teacher mode activation
@@ -1706,6 +1708,8 @@ useEffect(() => {
     if (isTeacher || isStudent) {
       setPinPrompt(null);
       setPinErrorState("");
+      // Unlock this student for the rest of the session
+      setUnlockedStudents(prev => new Set([...prev, studentId]));
       if (mode === "detail") setDetail(studentId);
       else setManageId(studentId);
     } else {
@@ -1714,8 +1718,8 @@ useEffect(() => {
   };
 
   const requestAccess = (studentId, mode) => {
-    if (teacherMode) {
-      // Skip PIN entirely in teacher mode
+    if (teacherMode || unlockedStudents.has(studentId)) {
+      // Skip PIN — teacher mode active or student already unlocked this session
       if (mode === "detail") setDetail(studentId);
       else setManageId(studentId);
       return;
@@ -2018,7 +2022,7 @@ useEffect(() => {
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
                       {clsStudents.map(s => (
-                        <StudentCard key={s.id} student={s} prices={prices} onClick={() => requestAccess(s.id, "detail")} onManage={() => requestAccess(s.id, "manage")}/>
+                        <StudentCard key={s.id} student={s} prices={prices} onClick={() => requestAccess(s.id, "detail")} onManage={() => requestAccess(s.id, "manage")} isUnlocked={teacherMode || unlockedStudents.has(s.id)}/>
                       ))}
                     </div>
                   </div>
