@@ -512,14 +512,25 @@ function ArcadeStudentCard({ name, emoji, description, picks, prices, budget, ca
 
 // ── Arcade Manage Holdings Modal ──────────────────────────────────────────────
 function ArcadeManageModal({ portfolio, prices, onSave, onClose }) {
-  const [rows, setRows] = useState(
-    portfolio.picks.map(p => ({ ...p, spentStr: String(p.spent), locked: true }))
+  // Track which original picks are still held (not sold)
+  const [keptTickers, setKeptTickers] = useState(
+    new Set(portfolio.picks.map(p => p.ticker))
   );
   const [newRows, setNewRows] = useState([]);
 
-  const lockedSpent = rows.filter(r => r.locked).reduce((s, r) => s + (r.spent || 0), 0);
+  const keptPicks = portfolio.picks.filter(p => keptTickers.has(p.ticker));
   const newSpent = newRows.reduce((s, r) => s + (parseFloat(r.spentStr) || 0), 0);
-  const availableCash = portfolio.cashBalance + newRows.reduce((s,r) => s, 0) - newSpent;
+
+  // Cash from sells: for each original pick that was sold, credit its current market value
+  const soldProceeds = portfolio.picks
+    .filter(p => !keptTickers.has(p.ticker))
+    .reduce((s, p) => {
+      const price = prices[p.ticker]?.price || p.purchasePrice;
+      return s + price * (p.spent / p.purchasePrice);
+    }, 0);
+
+  // Available cash = original cash + sell proceeds - new purchases
+  const availableCash = portfolio.cashBalance + soldProceeds - newSpent;
   const overBudget = availableCash < 0;
 
   const addNewRow = () => { if (newRows.length < 5) setNewRows(p => [...p, { id: uid(), ticker: "", spentStr: "", personality: "volatile" }]); };
@@ -527,36 +538,21 @@ function ArcadeManageModal({ portfolio, prices, onSave, onClose }) {
   const updateNew = (id, field, val) => setNewRows(p => p.map(r => r.id === id ? { ...r, [field]: field === "ticker" ? val.toUpperCase() : val } : r));
 
   const sellLocked = (ticker) => {
-    const p = rows.find(r => r.ticker === ticker);
-    if (!p) return;
-    const price = prices[ticker]?.price || p.purchasePrice;
-    const currentValue = price * (p.spent / p.purchasePrice);
-    portfolio.cashBalance += currentValue;
-    setRows(prev => prev.filter(r => r.ticker !== ticker));
+    setKeptTickers(prev => { const next = new Set(prev); next.delete(ticker); return next; });
   };
 
   const handleSave = () => {
+    if (overBudget) return;
     const validNew = newRows.filter(r => r.ticker.trim() && parseFloat(r.spentStr) > 0);
     const newPicks = validNew.map(r => {
       const ticker = r.ticker.trim().toUpperCase();
       const spent = parseFloat(r.spentStr);
       const price = prices[ticker]?.price || 10;
-      return {
-        ticker, spent,
-        purchasePrice: price,
-        shares: spent / price,
-        personality: STOCK_PERSONALITIES[ticker] || "volatile",
-      };
+      return { ticker, spent, purchasePrice: price, shares: spent / price, personality: STOCK_PERSONALITIES[ticker] || "volatile" };
     });
-    const soldTickers = portfolio.picks.map(p => p.ticker).filter(t => !rows.find(r => r.ticker === t));
-    const proceedsFromSells = soldTickers.reduce((s, ticker) => {
-      const orig = portfolio.picks.find(p => p.ticker === ticker);
-      const price = prices[ticker]?.price || orig.purchasePrice;
-      return s + price * (orig.spent / orig.purchasePrice);
-    }, 0);
-    const newCash = portfolio.cashBalance + proceedsFromSells - newSpent;
-    const updatedPicks = [...rows.filter(r => r.locked), ...newPicks];
-    onSave({ picks: updatedPicks, cashBalance: newCash });
+    // Final cash = original cash + sell proceeds - new purchases (single clean calculation)
+    const finalCash = portfolio.cashBalance + soldProceeds - newSpent;
+    onSave({ picks: [...keptPicks, ...newPicks], cashBalance: finalCash });
     onClose();
   };
 
@@ -577,10 +573,10 @@ function ArcadeManageModal({ portfolio, prices, onSave, onClose }) {
         </div>
 
         {/* Locked holdings */}
-        {rows.filter(r => r.locked).length > 0 && (
+        {keptPicks.length > 0 && (
           <>
             <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>CURRENT HOLDINGS</div>
-            {rows.filter(r => r.locked).map(h => {
+            {keptPicks.map(h => {
               const price = prices[h.ticker]?.price || h.purchasePrice;
               const currentValue = price * (h.spent / h.purchasePrice);
               const pnl = currentValue - h.spent;
