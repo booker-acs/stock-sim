@@ -47,36 +47,103 @@ const STOCK_PERSONALITIES = {
   GOVX:"rocket", NVAX:"rocket", SAVA:"rocket", MARA:"rocket", RIOT:"rocket",
 };
 
-// AI Challenger portfolios
-const AI_CHALLENGERS = [
+// AI Challenger roster — player picks 3 of 8
+const AI_CHALLENGER_ROSTER = [
   {
-    id: "safe-sally", name: "Safe Sally", emoji: "🏦",
-    description: "Conservative investor. Blue chips only.",
+    id: "mr-booker",
+    name: "Mr. Booker", emoji: "🏫",
+    quote: "Risk? I don't have money to throw around.",
+    description: "Ultra-conservative. Teachers on a budget don't gamble.",
     picks: [
-      { ticker: "JNJ", spent: 2500 },
       { ticker: "WMT", spent: 2500 },
-      { ticker: "V", spent: 2500 },
+      { ticker: "JNJ", spent: 2500 },
       { ticker: "KO", spent: 2500 },
+      { ticker: "PG", spent: 2500 },
     ]
   },
   {
-    id: "yolo-chad", name: "YOLO Chad", emoji: "🚀",
-    description: "High risk, high reward. Memes and dreams.",
+    id: "shkreli",
+    name: "Martin Shkreli", emoji: "💊",
+    quote: "I'm not actually that bad of a guy... okay maybe a little.",
+    description: "High risk, morally questionable, occasionally genius.",
     picks: [
-      { ticker: "AMC", spent: 2500 },
       { ticker: "MSTR", spent: 2500 },
       { ticker: "COIN", spent: 2500 },
+      { ticker: "AMC", spent: 2500 },
       { ticker: "RBLX", spent: 2500 },
     ]
   },
   {
-    id: "balanced-beth", name: "Balanced Beth", emoji: "⚖️",
-    description: "Diversified across sectors. Plays it smart.",
+    id: "barbara",
+    name: "Barbara Corcoran", emoji: "🦈",
+    quote: "The best time to invest was yesterday. The second best time is now.",
+    description: "Gut-instinct bets on brands people believe in.",
     picks: [
-      { ticker: "NVDA", spent: 2500 },
+      { ticker: "MCD", spent: 2500 },
+      { ticker: "SBUX", spent: 2500 },
+      { ticker: "DIS", spent: 2500 },
+      { ticker: "NKE", spent: 2500 },
+    ]
+  },
+  {
+    id: "claude",
+    name: "Claude A.", emoji: "🤖",
+    quote: "I ran the numbers. Then I ran them again.",
+    description: "AI-forward with defensive hedging. Methodical.",
+    picks: [
+      { ticker: "NVDA", spent: 2000 },
+      { ticker: "JPM", spent: 2000 },
+      { ticker: "WMT", spent: 2000 },
+      { ticker: "LLY", spent: 2000 },
+      { ticker: "NEE", spent: 2000 },
+    ]
+  },
+  {
+    id: "cramer",
+    name: "Jim Cramer", emoji: "📰",
+    quote: "BUY BUY BUY! ...sell.",
+    description: "Loudly confident, historically wrong.",
+    picks: [
+      { ticker: "NFLX", spent: 2500 },
+      { ticker: "META", spent: 2500 },
+      { ticker: "TSLA", spent: 2500 },
+      { ticker: "AMD", spent: 2500 },
+    ]
+  },
+  {
+    id: "buffett-jr",
+    name: "Warren Buffett Jr.", emoji: "🐢",
+    quote: "The stock market is a device for transferring money from the impatient to the patient.",
+    description: "Value investing. Wrong format, right mindset.",
+    picks: [
+      { ticker: "BRK", spent: 2500 },
+      { ticker: "AAPL", spent: 2500 },
+      { ticker: "BAC", spent: 2500 },
+      { ticker: "AXP", spent: 2500 },
+    ]
+  },
+  {
+    id: "mrbeast",
+    name: "MrBeast", emoji: "👾",
+    quote: "If I invested in boring stocks I couldn't afford to bury people in chocolate.",
+    description: "Reinvest everything. Bet on growth at all costs.",
+    picks: [
+      { ticker: "GOOGL", spent: 2500 },
+      { ticker: "META", spent: 2500 },
+      { ticker: "AMZN", spent: 2500 },
+      { ticker: "NFLX", spent: 2500 },
+    ]
+  },
+  {
+    id: "bronny",
+    name: "Bronny James", emoji: "🏀",
+    quote: "Legacy is built in the long game.",
+    description: "Safe, brand-name picks. Doesn't need the money anyway.",
+    picks: [
+      { ticker: "NKE", spent: 2500 },
+      { ticker: "DIS", spent: 2500 },
+      { ticker: "AAPL", spent: 2500 },
       { ticker: "JPM", spent: 2500 },
-      { ticker: "LLY", spent: 2500 },
-      { ticker: "NEE", spent: 2500 },
     ]
   },
 ];
@@ -953,6 +1020,8 @@ function ModeSelectModal({ onSelectLive, onSelectArcade }) {
 
 // ── Arcade Stock Picker ────────────────────────────────────────────────────────
 function ArcadeStockPicker({ onStart, onCancel }) {
+  const [step, setStep] = useState("opponents"); // "opponents" | "stocks"
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [rows, setRows] = useState([
     { id: uid(), ticker: "", amount: "" },
     { id: uid(), ticker: "", amount: "" },
@@ -960,12 +1029,21 @@ function ArcadeStockPicker({ onStart, onCancel }) {
   ]);
   const [loading, setLoading] = useState(false);
   const [warnings, setWarnings] = useState({});
-  const today = new Date().toISOString().slice(0, 10);
 
   const totalSpent = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
   const cashLeft = ARCADE_BUDGET - totalSpent;
   const overBudget = totalSpent > ARCADE_BUDGET;
   const validRows = rows.filter(r => r.ticker.trim() && parseFloat(r.amount) > 0);
+  const selectedChallengers = AI_CHALLENGER_ROSTER.filter(c => selectedIds.has(c.id));
+
+  const toggleChallenger = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); }
+      else if (next.size < 3) { next.add(id); }
+      return next;
+    });
+  };
 
   const addRow = () => { if (rows.length < 8) setRows(p => [...p, { id: uid(), ticker: "", amount: "" }]); };
   const removeRow = (id) => setRows(p => p.filter(r => r.id !== id));
@@ -973,21 +1051,19 @@ function ArcadeStockPicker({ onStart, onCancel }) {
     setRows(p => p.map(r => r.id === id ? { ...r, [field]: field === "ticker" ? val.toUpperCase() : val } : r));
     if (field === "ticker") {
       const t = val.toUpperCase().trim();
-      const personality = STOCK_PERSONALITIES[t];
       setWarnings(prev => ({
         ...prev,
-        [id]: t.length > 0 && !personality ? `${t} is not in our personality map — will simulate as volatile` : null
+        [id]: t.length > 0 && !STOCK_PERSONALITIES[t] ? `${t} unknown — will simulate as volatile` : null
       }));
     }
   };
 
   const handleStart = async () => {
-    if (!validRows.length || overBudget) return;
+    if (!validRows.length || overBudget || selectedIds.size !== 3) return;
     setLoading(true);
-    // Fetch starting prices for all picks + AI challenger tickers
     const allTickers = [...new Set([
       ...validRows.map(r => r.ticker.trim().toUpperCase()),
-      ...AI_CHALLENGERS.flatMap(c => c.picks.map(p => p.ticker))
+      ...selectedChallengers.flatMap(c => c.picks.map(p => p.ticker))
     ])];
     const priceResults = await Promise.all(allTickers.map(async t => {
       try {
@@ -1003,8 +1079,6 @@ function ArcadeStockPicker({ onStart, onCancel }) {
         return { ticker: t, price: null, companyName: t, error: true };
       }
     }));
-
-    // Check for failed fetches
     const failed = priceResults.filter(r => r.error);
     if (failed.length) {
       alert(`Could not fetch prices for: ${failed.map(r => r.ticker).join(", ")}. Please check these tickers and try again.`);
@@ -1014,87 +1088,133 @@ function ArcadeStockPicker({ onStart, onCancel }) {
     const priceMap = {};
     priceResults.forEach(r => { priceMap[r.ticker] = { price: r.price, companyName: r.companyName }; });
     setLoading(false);
-    onStart(validRows.map(r => ({
-      ticker: r.ticker.trim().toUpperCase(),
-      spent: parseFloat(r.amount),
-      personality: STOCK_PERSONALITIES[r.ticker.trim().toUpperCase()] || "volatile",
-    })), priceMap);
+    onStart(
+      validRows.map(r => ({
+        ticker: r.ticker.trim().toUpperCase(),
+        spent: parseFloat(r.amount),
+        personality: STOCK_PERSONALITIES[r.ticker.trim().toUpperCase()] || "volatile",
+      })),
+      priceMap,
+      selectedChallengers
+    );
   };
 
   const iStyle = { background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "8px 10px", fontSize: 13, outline: "none", boxSizing: "border-box", width: "100%" };
   const pctUsed = Math.min((totalSpent / ARCADE_BUDGET) * 100, 100);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
-      <div style={{ background: "#0f2347", border: "2px solid #7c3aed", borderRadius: 16, padding: 28, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.7)" }}>
-        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: 3, color: "#a78bfa", marginBottom: 4 }}>🕹️ ARCADE MODE</div>
-        <div style={{ fontSize: 13, color: "#5566aa", marginBottom: 20 }}>Pick your stocks and allocate your ${ARCADE_BUDGET.toLocaleString()} budget. Market opens when you're ready.</div>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16, overflowY: "auto" }}>
+      <div style={{ background: "#0f2347", border: "2px solid #7c3aed", borderRadius: 16, padding: 28, width: "100%", maxWidth: step === "opponents" ? 680 : 520, boxShadow: "0 20px 60px rgba(0,0,0,0.7)" }}>
 
-        {/* Budget bar */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 5 }}>
-            <span style={{ color: "#8899bb" }}>BUDGET</span>
-            <span style={{ fontWeight: 700, color: overBudget ? "#ef4444" : cashLeft < 500 ? "#f59e0b" : "#22c55e" }}>
-              {fmt$(cashLeft)} remaining
-            </span>
-          </div>
-          <div style={{ height: 6, background: "#0d1f3c", borderRadius: 4, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${pctUsed}%`, background: overBudget ? "#ef4444" : pctUsed > 90 ? "#f59e0b" : "#7c3aed", borderRadius: 4, transition: "width 0.3s ease" }}/>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <span style={{ fontSize: 24 }}>🕹️</span>
+          <div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: 3, color: "#a78bfa" }}>ARCADE MODE</div>
+            <div style={{ fontSize: 12, color: "#5566aa" }}>{step === "opponents" ? "Step 1 of 2 — Choose your 3 opponents" : "Step 2 of 2 — Pick your stocks"}</div>
           </div>
         </div>
 
-        {/* Column headers */}
-        <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 28px", gap: 8, marginBottom: 6 }}>
-          {["TICKER", "$ TO INVEST", ""].map(h => <div key={h} style={{ fontSize: 10, color: "#445577", letterSpacing: 1 }}>{h}</div>)}
+        {/* Step indicator */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+          {["opponents","stocks"].map((s, i) => (
+            <div key={s} style={{ flex: 1, height: 3, borderRadius: 2, background: step === s || (i === 0 && step === "stocks") ? "#7c3aed" : "#1e3560" }}/>
+          ))}
         </div>
 
-        {rows.map(r => (
-          <div key={r.id} style={{ marginBottom: warnings[r.id] ? 4 : 8 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 28px", gap: 8, alignItems: "center" }}>
-              <input value={r.ticker} onChange={e => updateRow(r.id, "ticker", e.target.value)} placeholder="AAPL"
-                style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
-              <input type="number" min="0" value={r.amount} onChange={e => updateRow(r.id, "amount", e.target.value)} placeholder="Amount ($)" style={iStyle}/>
-              <button onClick={() => removeRow(r.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 13, height: 34, width: 28 }}>✕</button>
+        {/* ── STEP 1: Opponent selection ── */}
+        {step === "opponents" && (
+          <>
+            <div style={{ fontSize: 12, color: "#5566aa", marginBottom: 16 }}>
+              Select exactly 3 opponents. Each has a distinct strategy — choose wisely.
             </div>
-            {warnings[r.id] && (
-              <div style={{ fontSize: 10, color: "#f59e0b", padding: "3px 4px" }}>⚠️ {warnings[r.id]}</div>
-            )}
-          </div>
-        ))}
-
-        {rows.length < 8 && (
-          <button onClick={addRow} style={{ background: "none", border: "1px dashed #2a3f6b", borderRadius: 6, color: "#8899bb", cursor: "pointer", padding: "7px 0", width: "100%", fontSize: 12, marginBottom: 8 }}>
-            + Add Stock
-          </button>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+              {AI_CHALLENGER_ROSTER.map(c => {
+                const selected = selectedIds.has(c.id);
+                const disabled = !selected && selectedIds.size >= 3;
+                return (
+                  <div key={c.id} onClick={() => !disabled && toggleChallenger(c.id)}
+                    style={{ background: selected ? "#1a0a3a" : "#0a1628", border: `2px solid ${selected ? "#7c3aed" : disabled ? "#1a1a2a" : "#1e3560"}`, borderRadius: 10, padding: "12px 14px", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1, transition: "all 0.15s" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <span style={{ fontSize: 22, flexShrink: 0 }}>{c.emoji}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: selected ? "#a78bfa" : "#e0e8ff" }}>{c.name}</div>
+                          {selected && <span style={{ fontSize: 10, color: "#7c3aed", background: "#2a1a4e", border: "1px solid #7c3aed55", borderRadius: 3, padding: "1px 6px" }}>✓ SELECTED</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#5566aa", marginTop: 2, fontStyle: "italic" }}>"{c.quote}"</div>
+                        <div style={{ fontSize: 10, color: "#445577", marginTop: 4 }}>{c.picks.map(p => p.ticker).join(" · ")}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={onCancel} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "11px 20px", fontSize: 13 }}>← Back</button>
+              <button onClick={() => setStep("stocks")} disabled={selectedIds.size !== 3}
+                style={{ flex: 1, background: selectedIds.size === 3 ? "#7c3aed" : "#2a2040", border: "none", borderRadius: 8, color: selectedIds.size === 3 ? "#fff" : "#5566aa", cursor: selectedIds.size === 3 ? "pointer" : "default", padding: "11px 0", fontSize: 13, fontWeight: 700 }}>
+                {selectedIds.size === 3 ? "Next: Pick Your Stocks →" : `Select ${3 - selectedIds.size} more opponent${3 - selectedIds.size !== 1 ? "s" : ""}`}
+              </button>
+            </div>
+          </>
         )}
 
-        {overBudget && (
-          <div style={{ background: "#3a0f0f", border: "1px solid #ef4444", borderRadius: 6, padding: "8px 12px", color: "#fca5a5", fontSize: 12, marginBottom: 12 }}>
-            ⚠️ Over budget by {fmt$(totalSpent - ARCADE_BUDGET)}
-          </div>
-        )}
+        {/* ── STEP 2: Stock picker ── */}
+        {step === "stocks" && (
+          <>
+            {/* Selected opponents preview */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              {selectedChallengers.map(c => (
+                <div key={c.id} style={{ flex: 1, background: "#0a1628", border: "1px solid #1e3560", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: 16 }}>{c.emoji}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#e0e8ff", marginTop: 2 }}>{c.name}</div>
+                </div>
+              ))}
+            </div>
 
-        {/* AI Challengers preview */}
-        <div style={{ borderTop: "1px solid #1e3560", marginTop: 12, paddingTop: 12, marginBottom: 16 }}>
-          <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>YOUR OPPONENTS</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {AI_CHALLENGERS.map(c => (
-              <div key={c.id} style={{ flex: 1, background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                <div style={{ fontSize: 18 }}>{c.emoji}</div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#e0e8ff" }}>{c.name}</div>
-                <div style={{ fontSize: 9, color: "#445577", marginTop: 2 }}>{c.description}</div>
+            {/* Budget bar */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 5 }}>
+                <span style={{ color: "#8899bb" }}>BUDGET</span>
+                <span style={{ fontWeight: 700, color: overBudget ? "#ef4444" : cashLeft < 500 ? "#f59e0b" : "#22c55e" }}>{fmt$(cashLeft)} remaining</span>
+              </div>
+              <div style={{ height: 6, background: "#0d1f3c", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pctUsed}%`, background: overBudget ? "#ef4444" : pctUsed > 90 ? "#f59e0b" : "#7c3aed", borderRadius: 4, transition: "width 0.3s ease" }}/>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 28px", gap: 8, marginBottom: 6 }}>
+              {["TICKER", "$ TO INVEST", ""].map(h => <div key={h} style={{ fontSize: 10, color: "#445577", letterSpacing: 1 }}>{h}</div>)}
+            </div>
+            {rows.map(r => (
+              <div key={r.id} style={{ marginBottom: warnings[r.id] ? 4 : 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 28px", gap: 8, alignItems: "center" }}>
+                  <input value={r.ticker} onChange={e => updateRow(r.id, "ticker", e.target.value)} placeholder="AAPL"
+                    style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
+                  <input type="number" min="0" value={r.amount} onChange={e => updateRow(r.id, "amount", e.target.value)} placeholder="Amount ($)" style={iStyle}/>
+                  <button onClick={() => removeRow(r.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 13, height: 34, width: 28 }}>✕</button>
+                </div>
+                {warnings[r.id] && <div style={{ fontSize: 10, color: "#f59e0b", padding: "3px 4px" }}>⚠️ {warnings[r.id]}</div>}
               </div>
             ))}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onCancel} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "11px 20px", fontSize: 13 }}>← Back</button>
-          <button onClick={handleStart} disabled={!validRows.length || overBudget || loading}
-            style={{ flex: 1, background: (!validRows.length || overBudget || loading) ? "#2a2040" : "#7c3aed", border: "none", borderRadius: 8, color: (!validRows.length || overBudget || loading) ? "#5566aa" : "#fff", cursor: (!validRows.length || overBudget || loading) ? "default" : "pointer", padding: "11px 0", fontSize: 13, fontWeight: 700 }}>
-            {loading ? "⟳ Fetching starting prices…" : "🚀 Start Session"}
-          </button>
-        </div>
+            {rows.length < 8 && (
+              <button onClick={addRow} style={{ background: "none", border: "1px dashed #2a3f6b", borderRadius: 6, color: "#8899bb", cursor: "pointer", padding: "7px 0", width: "100%", fontSize: 12, marginBottom: 8 }}>+ Add Stock</button>
+            )}
+            {overBudget && (
+              <div style={{ background: "#3a0f0f", border: "1px solid #ef4444", borderRadius: 6, padding: "8px 12px", color: "#fca5a5", fontSize: 12, marginBottom: 12 }}>
+                ⚠️ Over budget by {fmt$(totalSpent - ARCADE_BUDGET)}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={() => setStep("opponents")} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "11px 20px", fontSize: 13 }}>← Back</button>
+              <button onClick={handleStart} disabled={!validRows.length || overBudget || loading}
+                style={{ flex: 1, background: (!validRows.length || overBudget || loading) ? "#2a2040" : "#7c3aed", border: "none", borderRadius: 8, color: (!validRows.length || overBudget || loading) ? "#5566aa" : "#fff", cursor: (!validRows.length || overBudget || loading) ? "default" : "pointer", padding: "11px 0", fontSize: 13, fontWeight: 700 }}>
+                {loading ? "⟳ Fetching starting prices…" : "🚀 Start Session"}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -2586,7 +2706,7 @@ useEffect(() => {
   };
 
   // ── Arcade handlers ────────────────────────────────────────────────────────
-  const startArcade = (picks, priceMap) => {
+  const startArcade = (picks, priceMap, selectedChallengers) => {
     const initPrices = {};
     Object.entries(priceMap).forEach(([ticker, data]) => {
       initPrices[ticker] = { price: data.price, prevPrice: data.price, companyName: data.companyName };
@@ -2600,7 +2720,7 @@ useEffect(() => {
       })),
       cashBalance: ARCADE_BUDGET - picks.reduce((s, p) => s + p.spent, 0),
     });
-    setArcadeChallengers(AI_CHALLENGERS.map(c => ({
+    setArcadeChallengers(selectedChallengers.map(c => ({
       ...c,
       picks: c.picks.map(p => ({
         ...p,
