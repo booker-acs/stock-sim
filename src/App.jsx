@@ -1,46 +1,56 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, onValue, set, update, remove } from "firebase/database";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAjdy2nE1KHKcKNZCVqBAkMywM4KzrvfvA",
+  authDomain: "stock-sim-edc4f.firebaseapp.com",
+  databaseURL: "https://stock-sim-edc4f-default-rtdb.firebaseio.com",
+  projectId: "stock-sim-edc4f",
+  storageBucket: "stock-sim-edc4f.firebasestorage.app",
+  messagingSenderId: "247760779706",
+  appId: "1:247760779706:web:f9f389a195fe4aff1b8583"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
 
 const fmt$ = (n) => n == null ? "—" : `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtPct = (n) => n == null ? "—" : `${n >= 0 ? "+" : ""}${Number(n).toFixed(2)}%`;
 const uid = () => Math.random().toString(36).slice(2, 9);
 const BUDGET = 10000;
 const ALERT_THRESHOLD = 5; // % move triggers badge
+
+// Returns true if market is currently open (9:30am-4:00pm ET, weekdays)
+function isMarketOpen() {
+  const now = new Date();
+  const day = now.getDay();
+  if (day === 0 || day === 6) return false;
+  const etStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
+  const et = new Date(etStr);
+  const mins = et.getHours() * 60 + et.getMinutes();
+  return mins >= 570 && mins < 960; // 9:30am to 4:00pm
+}
 const TEACHER_PIN_HASH = "f823fed903848e7a12e6e04eca7a1a57e56a39a668f4911d48ef6386015646ed"; // sha256 of teacher PIN
 const hashPin = async (pin) => {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
 };
 
-console.log("key loaded:", !!import.meta.env.VITE_ANTHROPIC_API_KEY);
 
-async function fetchStockPrice(ticker) 
-{
+async function fetchStockPrice(ticker) {
   try {
-    const res = await fetch("/api/proxy", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    model: "claude-sonnet-4-5",
-        max_tokens: 300,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{
-          role: "user",
-          content: `Search for the current stock price and previous day's closing price for ticker symbol ${ticker}. Return ONLY a JSON object with no markdown: {"ticker":"${ticker}","currentPrice":NUMBER,"previousClose":NUMBER,"companyName":"NAME"} Use the most recent real market data available.`
-        }]
-      })
+    const res = await fetch('/api/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker })
     });
     const data = await res.json();
-    const text = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-    const clean = text.replace(/```json|```/g, "").trim();
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      return { ticker, currentPrice: parsed.currentPrice, previousClose: parsed.previousClose, companyName: parsed.companyName || ticker, error: null };
+    if (data.currentPrice) {
+      return { ticker, currentPrice: data.currentPrice, previousClose: data.previousClose, companyName: data.companyName || ticker, error: null };
     }
   } catch (e) {}
-  return { ticker, currentPrice: null, previousClose: null, companyName: ticker, error: "Failed to fetch" };
+  return { ticker, currentPrice: null, previousClose: null, companyName: ticker, error: 'Failed to fetch' };
 }
 
 async function fetchStockPriceOnDate(ticker, dateStr) {
@@ -50,33 +60,17 @@ async function fetchStockPriceOnDate(ticker, dateStr) {
     return { ticker, closePrice: r.currentPrice, actualDate: today, companyName: r.companyName, error: r.error };
   }
   try {
-    const res = await fetch("/api/proxy", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    model: "claude-sonnet-4-5",
-        max_tokens: 400,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{
-          role: "user",
-          content: `Search for the closing stock price of ${ticker} on ${dateStr}. If that was a weekend or market holiday, use the most recent prior trading day closing price. Return ONLY a JSON object with no markdown: {"ticker":"${ticker}","closePrice":NUMBER,"actualDate":"YYYY-MM-DD","companyName":"NAME"} where actualDate is the trading day actually used.`
-        }]
-      })
+    const res = await fetch('/api/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, date: dateStr })
     });
     const data = await res.json();
-    const text = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-    const clean = text.replace(/```json|```/g, "").trim();
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      if (parsed.closePrice) {
-        return { ticker, closePrice: parsed.closePrice, actualDate: parsed.actualDate || dateStr, companyName: parsed.companyName || ticker, error: null };
-      }
+    if (data.closePrice) {
+      return { ticker, closePrice: data.closePrice, actualDate: data.actualDate || dateStr, companyName: data.companyName || ticker, error: null };
     }
   } catch (e) {}
-  return { ticker, closePrice: null, actualDate: dateStr, companyName: ticker, error: "Failed to fetch historical price" };
+  return { ticker, closePrice: null, actualDate: dateStr, companyName: ticker, error: 'Failed to fetch historical price' };
 }
 
 function Sparkline({ data, color = "#FFD966", height = 36, width = 100 }) {
@@ -108,7 +102,9 @@ function BarChart({ holdings, prices }) {
   const bars = holdings.map(h => {
     const p = prices[h.ticker];
     const current = p?.currentPrice;
-    const pnl = current != null ? (current - h.purchasePrice) * h.shares : null;
+    if (!h.purchasePrice || !h.spent) return { ...h, current, pnl: null, pct: null };
+    const derivedShares = h.spent / h.purchasePrice;
+    const pnl = current != null ? (current - h.purchasePrice) * derivedShares : null;
     const pct = current != null ? ((current - h.purchasePrice) / h.purchasePrice) * 100 : null;
     return { ...h, current, pnl, pct };
   }).filter(b => b.pct != null);
@@ -142,23 +138,47 @@ function ErrorToast({ message, onClose }) {
   );
 }
 
-function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) {
+function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, prices }) {
   const [rows, setRows] = useState(
     student.holdings.length
-      ? student.holdings.map(h => ({ ...h, spentStr: String(h.spent) }))
+      ? student.holdings.map(h => ({
+          ...h,
+          spentStr: String(h.spent || 0),
+          purchasePrice: h.purchasePrice ?? null,
+          shares: h.shares ?? null,
+        }))
       : [{ id: uid(), ticker: "", date: new Date().toISOString().slice(0,10), spentStr: "", spent: 0, purchasePrice: null, shares: null }]
   );
   const [fetching, setFetching] = useState(false);
   const [fetchStatus, setFetchStatus] = useState({});
 
-  const totalSpent = rows.reduce((s, h) => s + (parseFloat(h.spentStr) || 0), 0);
-  const cashLeft = BUDGET - totalSpent;
-  const overBudget = totalSpent > BUDGET;
-  const pctUsed = Math.min((totalSpent / BUDGET) * 100, 100);
+  const [soldProceeds, setSoldProceeds] = useState(0); // tracks cash from selling at market value
+
+  const lockedSpent = rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).reduce((s, h) => s + (h.spent || 0), 0);
+  const newSpent = rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).reduce((s, h) => s + (parseFloat(h.spentStr) || 0), 0);
+  const totalSpent = lockedSpent + newSpent;
+  // Available cash = original cashBalance + proceeds from sells - new purchases
+  const originalCash = student.cashBalance != null ? student.cashBalance : BUDGET - student.holdings.reduce((s, h) => s + (h.spent || 0), 0);
+  const availableCash = originalCash + soldProceeds - newSpent;
+  const overBudget = availableCash < 0;
+  const totalPortfolio = lockedSpent + (originalCash + soldProceeds);
+  const pctUsed = Math.min((lockedSpent / BUDGET) * 100, 100);
+  const cashLeft = availableCash;
   const today = new Date().toISOString().slice(0, 10);
 
   const addRow = () => { if (rows.length < 10) setRows(prev => [...prev, { id: uid(), ticker: "", date: today, spentStr: "", spent: 0, purchasePrice: null, shares: null }]); };
-  const removeRow = (id) => setRows(prev => prev.filter(h => h.id !== id));
+
+  const removeRow = (id) => {
+    const h = rows.find(r => r.id === id);
+    if (h && h.purchasePrice && h.purchasePrice > 0 && h.spent) {
+      // Selling a locked holding — credit current market value, not original cost
+      const currentPrice = prices[h.ticker]?.currentPrice;
+      const derivedShares = h.spent / h.purchasePrice;
+      const marketValue = currentPrice ? currentPrice * derivedShares : h.spent;
+      setSoldProceeds(prev => prev + marketValue);
+    }
+    setRows(prev => prev.filter(r => r.id !== id));
+  };
   const updateRow = (id, field, val) => setRows(prev => prev.map(h => {
     if (h.id !== id) return h;
     if (field === "spentStr") return { ...h, spentStr: val, spent: parseFloat(val) || 0 };
@@ -170,16 +190,15 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
 
   const handleSave = async () => {
     const valid = rows.filter(h => h.ticker.trim() && parseFloat(h.spentStr) > 0);
-    const total = valid.reduce((s, h) => s + parseFloat(h.spentStr), 0);
-    if (total > BUDGET) {
-      onError(`You've exceeded your pocket cash! Total $${total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} exceeds the $10,000 budget by ${fmt$(total - BUDGET)}. Please reduce your investments.`);
+    if (availableCash < 0) {
+      onError(`You've exceeded your pocket cash! You need ${fmt$(Math.abs(availableCash))} more to complete these purchases.`);
       return;
     }
     if (!valid.length) { onClose(); return; }
     setFetching(true);
     const resolved = await Promise.all(valid.map(async h => {
       // skip re-fetch if price already locked and ticker/date unchanged
-      if (h.purchasePrice != null) return { ...h, spent: parseFloat(h.spentStr) };
+      if (h.purchasePrice != null && h.purchasePrice > 0) return { ...h, spent: h.spent }; // locked
       const ticker = h.ticker.trim().toUpperCase();
       const spent = parseFloat(h.spentStr);
       setFetchStatus(prev => ({ ...prev, [h.id]: `Looking up ${ticker} on ${h.date < today ? h.date : "today"}…` }));
@@ -193,7 +212,10 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
       return { ...h, ticker, spent, purchasePrice: pp, shares: pp ? spent / pp : null, date: actualDate, _companyName: companyName };
     }));
     setFetching(false);
-    onSave(resolved);
+    const totalLockedSpent = resolved.reduce((s, h) => s + (h.spent || 0), 0);
+    // newCashBalance = original cash + sell proceeds - new purchases
+    const newCashBalance = originalCash + soldProceeds - newSpent;
+    onSave(resolved, newCashBalance);
     onClose();
   };
 
@@ -209,9 +231,9 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
 
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 5 }}>
-            <span style={{ color: "#8899bb" }}>BUDGET USED</span>
+            <span style={{ color: "#8899bb" }}>AVAILABLE CASH</span>
             <span style={{ fontWeight: 700, color: overBudget ? "#ef4444" : cashLeft <= 500 ? "#f59e0b" : "#22c55e" }}>
-              {fmt$(totalSpent)} / {fmt$(BUDGET)} &nbsp;·&nbsp; {fmt$(cashLeft)} remaining
+              {fmt$(cashLeft)} available {soldProceeds > 0 ? `(includes ${fmt$(soldProceeds)} from sales)` : ""}
             </span>
           </div>
           <div style={{ height: 6, background: "#0d1f3c", borderRadius: 4, overflow: "hidden" }}>
@@ -219,40 +241,62 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, marginBottom: 6, padding: "0 2px" }}>
-          {["TICKER", "PURCHASE DATE", "$ INVESTED", ""].map(h => (
-            <div key={h} style={{ fontSize: 10, color: "#445577", letterSpacing: 1 }}>{h}</div>
-          ))}
-        </div>
-
-        {rows.map(h => {
-          const isPast = h.date && h.date < today;
-          const isLocked = h.purchasePrice != null;
-          const status = fetchStatus[h.id];
-          return (
-            <div key={h.id} style={{ marginBottom: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, alignItems: "center" }}>
-                <input value={h.ticker} onChange={e => updateRow(h.id, "ticker", e.target.value)} placeholder="AAPL" style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
-                <div style={{ position: "relative" }}>
-                  <input type="date" value={h.date} onChange={e => updateRow(h.id, "date", e.target.value)} style={{ ...iStyle, borderColor: isPast ? "#f59e0b66" : "#2a3f6b" }}/>
+        {/* ── Locked (existing) holdings ── */}
+        {rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).length > 0 && (
+          <>
+            <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>CURRENT HOLDINGS — locked in</div>
+            {rows.filter(h => h.purchasePrice != null && h.purchasePrice > 0).map(h => (
+              <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966", fontSize: 14, width: 70 }}>{h.ticker}</div>
+                <div style={{ flex: 1, fontSize: 12, color: "#8899bb" }}>
+                  {fmt$(h.spent)} invested · {fmt$(h.purchasePrice)}/share · {h.spent && h.purchasePrice ? (h.spent / h.purchasePrice).toFixed(4) : "—"} shares
                 </div>
-                <input type="number" min="0" value={h.spentStr} onChange={e => updateRow(h.id, "spentStr", e.target.value)} placeholder="Amount ($)" style={{ ...iStyle, borderColor: overBudget ? "#ef444466" : "#2a3f6b" }}/>
-                <button onClick={() => removeRow(h.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 14, height: 36, width: 32 }}>✕</button>
+                <div style={{ fontSize: 10, color: "#22c55e", background: "#0d2a1a", border: "1px solid #22c55e33", borderRadius: 4, padding: "2px 7px", marginRight: 4 }}>🔒 LOCKED</div>
+                <button onClick={() => removeRow(h.id)}
+                  style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ef4444", cursor: "pointer", padding: "4px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  Sell
+                </button>
               </div>
-              {(isPast || isLocked || status) && (
-                <div style={{ paddingLeft: 2, marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
-                  {status ? (
-                    <span style={{ fontSize: 11, color: "#f59e0b", fontStyle: "italic" }}>⟳ {status}</span>
-                  ) : isLocked ? (
-                    <span style={{ fontSize: 11, color: "#22c55e" }}>✓ Locked at {fmt$(h.purchasePrice)} ({h.date})</span>
-                  ) : isPast ? (
-                    <span style={{ fontSize: 11, color: "#f59e0b" }}>📅 Historical price will be fetched for {h.date}</span>
-                  ) : null}
-                </div>
-              )}
+            ))}
+            <div style={{ height: 1, background: "#1e3560", margin: "12px 0" }}/>
+          </>
+        )}
+
+        {/* ── New (editable) holdings ── */}
+        {rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).length > 0 && (
+          <>
+            <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>
+              {rows.some(h => h.purchasePrice != null && h.purchasePrice > 0) ? "NEW PURCHASES" : "STOCK PURCHASES"}
             </div>
-          );
-        })}
+            <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, marginBottom: 6, padding: "0 2px" }}>
+              {["TICKER", "PURCHASE DATE", "$ INVESTED", ""].map(h => (
+                <div key={h} style={{ fontSize: 10, color: "#334466", letterSpacing: 1 }}>{h}</div>
+              ))}
+            </div>
+            {rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0)).map(h => {
+              const isPast = h.date && h.date < today;
+              const status = fetchStatus[h.id];
+              return (
+                <div key={h.id} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, alignItems: "center" }}>
+                    <input value={h.ticker} onChange={e => updateRow(h.id, "ticker", e.target.value)} placeholder="AAPL" style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
+                    <input type="date" value={h.date} onChange={e => updateRow(h.id, "date", e.target.value)} style={{ ...iStyle, borderColor: isPast ? "#f59e0b66" : "#2a3f6b" }}/>
+                    <input type="number" min="0" value={h.spentStr} onChange={e => updateRow(h.id, "spentStr", e.target.value)} placeholder="Amount ($)" style={{ ...iStyle, borderColor: overBudget ? "#ef444466" : "#2a3f6b" }}/>
+                    <button onClick={() => removeRow(h.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 14, height: 36, width: 32 }}>✕</button>
+                  </div>
+                  {(isPast || status) && (
+                    <div style={{ paddingLeft: 2, marginTop: 4 }}>
+                      {status
+                        ? <span style={{ fontSize: 11, color: "#f59e0b", fontStyle: "italic" }}>⟳ {status}</span>
+                        : <span style={{ fontSize: 11, color: "#f59e0b" }}>📅 Historical price will be fetched for {h.date}</span>
+                      }
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
 
         {rows.length < 10 && (
           <button onClick={addRow} style={{ background: "none", border: "1px dashed #2a3f6b", borderRadius: 6, color: "#8899bb", cursor: "pointer", padding: "7px 0", width: "100%", fontSize: 12, marginBottom: 4 }}>
@@ -263,7 +307,7 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice }) 
         {overBudget && (
           <div style={{ background: "#3a0f0f", border: "1px solid #ef4444", borderRadius: 8, padding: "10px 14px", color: "#fca5a5", fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
             <span>⚠️</span>
-            <span>Exceeds $10,000 budget by <strong>{fmt$(totalSpent - BUDGET)}</strong>. You've exceeded your pocket cash — reduce investments to save.</span>
+            <span>You've exceeded your pocket cash by <strong>{fmt$(Math.abs(availableCash))}</strong>. Reduce new purchases or sell a holding to free up cash.</span>
           </div>
         )}
 
@@ -303,7 +347,7 @@ function BulkAddModal({ classes, onAdd, onClose }) {
     const className = (cls === "" || !classes.length) ? newClass.trim() : cls;
     if (!className || !preview.length) return;
     preview.forEach(name => {
-      onAdd({ id: uid(), name, className, budget: BUDGET, holdings: [], notes: "", pinHash: null });
+      onAdd({ id: uid(), name, className, budget: BUDGET, holdings: [], notes: "", pinHash: null, cashBalance: BUDGET });
     });
     onClose();
   };
@@ -380,7 +424,7 @@ function AddStudentModal({ classes, onAdd, onClose }) {
     if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { setPinError("PIN must be exactly 4 digits."); return; }
     if (pin !== pin2) { setPinError("PINs do not match."); return; }
     const pinHash = await hashPin(pin);
-    onAdd({ id: uid(), name: name.trim(), className, budget: BUDGET, holdings: [], notes: "", pinHash });
+    onAdd({ id: uid(), name: name.trim(), className, budget: BUDGET, holdings: [], notes: "", pinHash, cashBalance: BUDGET });
     onClose();
   };
 
@@ -513,8 +557,8 @@ function DiversityPanel({ holdings }) {
   const sectorEntries = Object.entries(sectors).sort((a, b) => b[1] - a[1]);
 
   return (
-    <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-      <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 16 }}>Portfolio Diversity</div>
+    <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 16 }}>Portfolio Diversity</div>
 
       {/* Score ring area */}
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start", marginBottom: 16 }}>
@@ -637,8 +681,10 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
   const [simPrices, setSimPrices] = useState({});
   const [loading, setLoading] = useState(false);
   const [ran, setRan] = useState(false);
+  const [simDate, setSimDate] = useState(new Date().toISOString().slice(0, 10));
 
   const today = new Date().toISOString().slice(0, 10);
+  const isHistorical = simDate < today;
 
   const addRow = () => { if (rows.length < 5) setRows(p => [...p, { id: uid(), ticker: "", amount: "" }]); };
   const removeRow = (id) => setRows(p => p.filter(r => r.id !== id));
@@ -654,11 +700,17 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
     setRan(false);
     const results = await Promise.all(validRows.map(async r => {
       const ticker = r.ticker.trim().toUpperCase();
-      // use cached price if available, otherwise fetch
-      const cached = prices[ticker];
-      if (cached?.currentPrice) return { ticker, currentPrice: cached.currentPrice, companyName: cached.companyName };
-      const p = await fetchPrice(ticker);
-      return { ticker, currentPrice: p?.currentPrice || null, companyName: p?.companyName || ticker };
+      if (isHistorical) {
+        // fetch historical price for the chosen date
+        const p = await fetchStockPriceOnDate(ticker, simDate);
+        const currentP = prices[ticker]?.currentPrice || null;
+        return { ticker, buyPrice: p?.closePrice || null, currentPrice: currentP, companyName: p?.companyName || ticker };
+      } else {
+        const cached = prices[ticker];
+        if (cached?.currentPrice) return { ticker, buyPrice: cached.currentPrice, currentPrice: cached.currentPrice, companyName: cached.companyName };
+        const p = await fetchPrice(ticker);
+        return { ticker, buyPrice: p?.currentPrice || null, currentPrice: p?.currentPrice || null, companyName: p?.companyName || ticker };
+      }
     }));
     const map = {};
     results.forEach(r => { map[r.ticker] = r; });
@@ -692,14 +744,14 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
     const ticker = r.ticker.trim().toUpperCase();
     const p = simPrices[ticker];
     const spent = parseFloat(r.amount);
-    if (!p?.currentPrice) return { ticker, spent, pnl: null, pct: null };
-    // Use previousClose from global prices if available, else currentPrice (no change)
-    const prevClose = prices[ticker]?.previousClose || p.currentPrice;
-    const shares = spent / prevClose;
-    const nowVal = shares * p.currentPrice;
+    if (!p?.buyPrice) return { ticker, spent, pnl: null, pct: null };
+    const buyPrice = p.buyPrice;
+    const nowPrice = isHistorical ? (p.currentPrice || buyPrice) : buyPrice;
+    const shares = spent / buyPrice;
+    const nowVal = shares * nowPrice;
     const pnl = nowVal - spent;
     const pct = (pnl / spent) * 100;
-    return { ticker, spent, shares, buyPrice: prevClose, nowPrice: p.currentPrice, nowVal, pnl, pct, companyName: p.companyName };
+    return { ticker, spent, shares, buyPrice, nowPrice, nowVal, pnl, pct, companyName: p.companyName };
   }) : [];
 
   const simTotalPnL = simResults.reduce((s, r) => s + (r.pnl || 0), 0);
@@ -708,10 +760,20 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
   const iStyle = { background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "7px 10px", fontSize: 13, outline: "none", boxSizing: "border-box", width: "100%" };
 
   return (
-    <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-      <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 6 }}>What-If Simulator</div>
+    <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px" }}>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 6 }}>What-If Simulator</div>
       <div style={{ fontSize: 12, color: "#445577", marginBottom: 16 }}>
         Hypothetically test alternative investments without affecting this student's real portfolio.
+      </div>
+
+      {/* Date picker */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: "#6677aa", letterSpacing: 1, whiteSpace: "nowrap" }}>PURCHASE DATE</div>
+        <input type="date" value={simDate} max={today} onChange={e => { setSimDate(e.target.value); setRan(false); }}
+          style={{ ...iStyle, width: "auto", borderColor: isHistorical ? "#f59e0b66" : "#2a3f6b" }}/>
+        {isHistorical && (
+          <span style={{ fontSize: 11, color: "#f59e0b" }}>📅 Will fetch historical prices for {simDate}</span>
+        )}
       </div>
 
       {/* Input rows */}
@@ -748,7 +810,7 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
                 <div style={{ fontSize: 11, color: "#6677aa" }}>{fmt$(realCurrent - realInvested)} on {fmt$(realInvested)}</div>
               </div>
               <div style={{ borderLeft: "1px solid #1e3560", paddingLeft: 12 }}>
-                <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 4 }}>HYPOTHETICAL (TODAY)</div>
+                <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 4 }}>{isHistorical ? `HYPOTHETICAL (SINCE ${simDate})` : "HYPOTHETICAL (TODAY)"}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: simTotalPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(simTotalPct)}</div>
                 <div style={{ fontSize: 11, color: "#6677aa" }}>{simTotalPnL >= 0 ? "+" : ""}{fmt$(simTotalPnL)} on {fmt$(simInvested)}</div>
               </div>
@@ -780,7 +842,7 @@ function WhatIfSimulator({ student, prices, fetchPrice }) {
             </div>
           ))}
           <div style={{ fontSize: 10, color: "#445577", marginTop: 10, fontStyle: "italic" }}>
-            Simulation uses yesterday's close as buy price and today's price as current value.
+            {isHistorical ? `Historical simulation: bought at ${simDate} prices, valued at today's prices.` : "Simulation uses current price as buy price and compares to today's value."}
           </div>
         </>
       )}
@@ -810,18 +872,18 @@ function SetPinPanel({ student, onUpdatePin }) {
 
   return (
     <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-      <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 4 }}>
         {student.pinHash ? "Change PIN" : "Set Student PIN"}
       </div>
       <div style={{ fontSize: 12, color: "#445577", marginBottom: 14 }}>
         {student.pinHash ? "Enter a new 4-digit PIN to replace the current one." : "No PIN is set. Set one so this student can access their own portfolio."}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "flex-end" }}>
-        <div>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ flex: "0 0 140px" }}>
           <label style={{ fontSize: 10, color: "#5566aa", display: "block", marginBottom: 4, letterSpacing: 1 }}>NEW PIN</label>
           <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g,"")); setErr(""); }} placeholder="••••" style={iStyle}/>
         </div>
-        <div>
+        <div style={{ flex: "0 0 140px" }}>
           <label style={{ fontSize: 10, color: "#5566aa", display: "block", marginBottom: 4, letterSpacing: 1 }}>CONFIRM</label>
           <input type="password" inputMode="numeric" maxLength={4} value={pin2} onChange={e => { setPin2(e.target.value.replace(/\D/g,"")); setErr(""); }} placeholder="••••" style={iStyle}/>
         </div>
@@ -835,10 +897,22 @@ function SetPinPanel({ student, onUpdatePin }) {
   );
 }
 
-function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onError, fetchPrice }) {
+function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onUpdateClass, onError, fetchPrice }) {
   const [showManage, setShowManage] = useState(false);
+
+  // Scroll to top when detail view opens
+  useEffect(() => { window.scrollTo(0, 0); }, []);
   const [notes, setNotes] = useState(student.notes || "");
   const [notesSaved, setNotesSaved] = useState(false);
+  const [editingClass, setEditingClass] = useState(false);
+  const [classInput, setClassInput] = useState(student.className);
+
+  const handleSaveClass = () => {
+    if (classInput.trim() && classInput.trim() !== student.className) {
+      onUpdateClass(student.id, classInput.trim());
+    }
+    setEditingClass(false);
+  };
 
   const handleSaveNotes = () => {
     onUpdateNotes(student.id, notes);
@@ -846,18 +920,30 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
     setTimeout(() => setNotesSaved(false), 2000);
   };
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
-  const cashLeft = BUDGET - totalInvested;
-  const totalCurrent = student.holdings.reduce((s, h) => {
-    const p = prices[h.ticker]?.currentPrice;
-    return s + (p != null && h.shares != null ? p * h.shares : h.spent);
-  }, 0);
-  const totalPnL = totalCurrent - totalInvested;
-  const totalPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
-  const todayPnL = student.holdings.reduce((s, h) => {
-    const p = prices[h.ticker];
-    if (!p?.currentPrice || !p?.previousClose || !h.shares) return s;
-    return s + (p.currentPrice - p.previousClose) * h.shares;
-  }, 0);
+  const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
+  // Single-pass calculation to ensure all values use identical price snapshots
+  const today = new Date().toISOString().slice(0, 10);
+  const holdingStats = student.holdings.map(h => {
+    const priceData = prices[h.ticker];
+    const currentPrice = priceData?.currentPrice ?? null;
+    const previousClose = priceData?.previousClose ?? null;
+    const derivedShares = (h.purchasePrice && h.spent) ? h.spent / h.purchasePrice : 0;
+    const currentValue = (currentPrice != null) ? currentPrice * derivedShares : h.spent;
+    const marketOpen = isMarketOpen();
+    const todayBaseline = h.date === today ? h.purchasePrice : previousClose;
+    // When market is closed, previousClose may be stale/wrong — use purchasePrice instead
+    const safeBaseline = marketOpen ? todayBaseline : h.purchasePrice;
+    const todayChange = (currentPrice != null && safeBaseline != null)
+      ? (currentPrice - safeBaseline) * derivedShares : 0;
+    return { currentValue, todayChange };
+  });
+  const stockValue = holdingStats.reduce((s, h) => s + h.currentValue, 0);
+  const portfolioValue = stockValue + cashLeft;
+  const totalPnL = portfolioValue - BUDGET;
+  const totalPct = (totalPnL / BUDGET) * 100;
+  const totalCurrent = stockValue;
+  const todayPnL = holdingStats.reduce((s, h) => s + h.todayChange, 0);
+  const todayPct = (todayPnL / BUDGET) * 100;
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a1628 0%, #0f2040 50%, #0a1628 100%)", padding: "24px 20px", fontFamily: "'DM Sans', sans-serif", color: "#e0e8ff" }}>
@@ -866,7 +952,24 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           <button onClick={onBack} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "8px 14px", fontSize: 13 }}>← Back</button>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 26, letterSpacing: 3, color: "#e0e8ff" }}>{student.name}</div>
-            <div style={{ fontSize: 12, color: "#8899bb" }}>{student.className}</div>
+            {editingClass ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                <input
+                  value={classInput}
+                  onChange={e => setClassInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleSaveClass(); if (e.key === "Escape") setEditingClass(false); }}
+                  autoFocus
+                  style={{ background: "#0d1f3c", border: "1px solid #2a4a8a", borderRadius: 5, color: "#e0e8ff", padding: "3px 8px", fontSize: 12, outline: "none", width: 140 }}
+                />
+                <button onClick={handleSaveClass} style={{ background: "#22c55e", border: "none", borderRadius: 5, color: "#0d1f3c", cursor: "pointer", padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>Save</button>
+                <button onClick={() => setEditingClass(false)} style={{ background: "none", border: "none", color: "#8899bb", cursor: "pointer", fontSize: 13 }}>✕</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                <span style={{ fontSize: 12, color: "#8899bb" }}>{student.className}</span>
+                <button onClick={() => { setClassInput(student.className); setEditingClass(true); }} style={{ background: "none", border: "none", color: "#445577", cursor: "pointer", fontSize: 11, padding: 0 }} title="Edit class">✎</button>
+              </div>
+            )}
           </div>
           <button onClick={() => setShowManage(true)} style={{ background: "#1C4587", border: "1px solid #2a4a8a", borderRadius: 8, color: "#e0e8ff", cursor: "pointer", padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
             ✏️ Manage Holdings
@@ -876,8 +979,8 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
 
         <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6677aa", marginBottom: 6 }}>
-            <span>BUDGET — {fmt$(totalInvested)} invested</span>
-            <span style={{ color: cashLeft > 500 ? "#f59e0b" : "#22c55e" }}>{fmt$(cashLeft)} unallocated</span>
+            <span>BUDGET — {fmt$(totalInvested)} invested · {fmt$(cashLeft)} cash</span>
+            <span style={{ color: totalPnL >= 0 ? "#22c55e" : "#ef4444" }}>{totalPnL >= 0 ? "+" : ""}{fmt$(totalPnL)} total P&L</span>
           </div>
           <div style={{ height: 5, background: "#0d1f3c", borderRadius: 4, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${Math.min((totalInvested / BUDGET) * 100, 100)}%`, background: "#1C4587", borderRadius: 4, transition: "width 0.4s ease" }}/>
@@ -886,9 +989,9 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
           {[
-            { label: "Portfolio Value", value: fmt$(totalCurrent + cashLeft), sub: `${fmt$(cashLeft)} cash` },
-            { label: "Total P&L", value: fmtPct(totalPct), sub: fmt$(totalPnL), color: totalPnL >= 0 ? "#22c55e" : "#ef4444" },
-            { label: "Today's Change", value: todayPnL >= 0 ? `+${fmt$(todayPnL)}` : fmt$(todayPnL), sub: "vs prev close", color: todayPnL >= 0 ? "#22c55e" : "#ef4444" }
+            { label: "Portfolio Value", value: fmt$(portfolioValue), sub: `${fmt$(cashLeft)} cash` },
+            { label: "Total P&L", value: fmtPct(totalPct), sub: (totalPnL >= 0 ? "+" : "") + fmt$(totalPnL), color: totalPnL >= 0 ? "#22c55e" : "#ef4444" },
+            { label: isMarketOpen() ? "Today's Change" : "Since Purchase", value: fmtPct(todayPct), sub: (todayPnL >= 0 ? "+" : "") + fmt$(todayPnL), color: todayPnL >= 0 ? "#22c55e" : "#ef4444" }
           ].map(c => (
             <div key={c.label} style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ fontSize: 10, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{c.label}</div>
@@ -909,11 +1012,11 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
         ) : (
           <>
             <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px 20px 16px" }}>
-              <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 16 }}>Performance by Stock</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 16 }}>Performance by Stock</div>
               <BarChart holdings={student.holdings} prices={prices}/>
             </div>
             <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-              <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 16 }}>Holdings Detail</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 16 }}>Holdings Detail</div>
               <div style={{ display: "grid", gridTemplateColumns: "70px 1fr 70px 90px 80px 80px 80px", gap: 8, marginBottom: 8, padding: "0 4px" }}>
                 {["Ticker","Company","Shares","Date","Buy Price","Now","P&L"].map(h => (
                   <div key={h} style={{ fontSize: 10, color: "#445577", textTransform: "uppercase", letterSpacing: 1 }}>{h}</div>
@@ -922,12 +1025,13 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
               {student.holdings.map(h => {
                 const p = prices[h.ticker];
                 const cur = p?.currentPrice;
-                const pnl = cur != null && h.shares != null ? (cur - h.purchasePrice) * h.shares : null;
+                const derivedShares = h.purchasePrice && h.spent ? h.spent / h.purchasePrice : h.shares;
+                const pnl = cur != null && derivedShares != null ? (cur - h.purchasePrice) * derivedShares : null;
                 return (
                   <div key={h.id} style={{ display: "grid", gridTemplateColumns: "70px 1fr 70px 90px 80px 80px 80px", gap: 8, padding: "10px 4px", borderTop: "1px solid #1a2d52", alignItems: "center" }}>
                     <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966", fontSize: 13 }}>{h.ticker}</div>
                     <div style={{ fontSize: 12, color: "#aabbd0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.companyName || h._companyName || "—"}</div>
-                    <div style={{ fontSize: 12, color: "#c0cfea" }}>{h.shares != null ? h.shares.toFixed(3) : "—"}</div>
+                    <div style={{ fontSize: 12, color: "#c0cfea" }}>{derivedShares != null ? derivedShares.toFixed(3) : "—"}</div>
                     <div style={{ fontSize: 11, color: "#6677aa" }}>{h.date || "—"}</div>
                     <div style={{ fontSize: 12, color: "#c0cfea" }}>{fmt$(h.purchasePrice)}</div>
                     <div style={{ fontSize: 12, color: "#c0cfea" }}>{fmt$(cur)}</div>
@@ -939,43 +1043,67 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           </>
         )}
       </div>
-      {/* Portfolio history chart */}
-      {(student.history?.length >= 1) && (
-        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-          <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 14 }}>Portfolio History</div>
-          <PortfolioHistoryChart history={student.history}/>
-        </div>
-      )}
+      {/* Lower panels layout */}
 
-      {/* Diversity + What-If */}
-      {student.holdings.length > 0 && (
-        <DiversityPanel holdings={student.holdings}/>
-      )}
-      <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
-
-      {/* Notes section */}
-      <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", marginTop: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: "#6677aa", textTransform: "uppercase", letterSpacing: 1.5 }}>Teacher Notes</div>
-          <button onClick={handleSaveNotes}
-            style={{ background: notesSaved ? "#14532d" : "#1a2d52", border: `1px solid ${notesSaved ? "#22c55e" : "#2a3f6b"}`, borderRadius: 6, color: notesSaved ? "#22c55e" : "#8899bb", cursor: "pointer", padding: "4px 14px", fontSize: 11, fontWeight: 600, transition: "all 0.2s" }}>
-            {notesSaved ? "✓ Saved" : "Save Notes"}
-          </button>
+      {/* Row 1: Portfolio History (left) + Portfolio Diversity (right) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
+        {/* History — stretches to match Diversity height */}
+        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column" }}>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 14, flexShrink: 0 }}>Portfolio History</div>
+          {(student.history?.length >= 1) ? (
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 120 }}>
+              <PortfolioHistoryChart history={student.history}/>
+            </div>
+          ) : (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#445577", fontSize: 13, textAlign: "center", minHeight: 80 }}>
+              History builds up as prices are refreshed each session.
+            </div>
+          )}
         </div>
-        <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="Add grading notes, observations, or feedback for this student…"
-          rows={4}
-          style={{ width: "100%", background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "10px 12px", fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}
-        />
+        {/* Diversity — natural height, drives the row height */}
+        {student.holdings.length > 0 ? (
+          <DiversityPanel holdings={student.holdings}/>
+        ) : (
+          <div style={{ background: "#0f2347", border: "1px dashed #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", color: "#445577", fontSize: 13 }}>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2, marginBottom: 8 }}>Portfolio Diversity</div>
+            Add holdings to see diversity score.
+          </div>
+        )}
       </div>
 
-      {/* Set / Change PIN panel */}
-      <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
+      {/*     {/* Row 2: What-If Simulator (left) + Teacher Notes (right) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch" }}>
+        {/* WhatIf — natural height, drives the row */}
+        <WhatIfSimulator student={student} prices={prices} fetchPrice={fetchPrice}/>
+        {/* Notes — stretches to match WhatIf height */}
+        <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "20px", display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexShrink: 0 }}>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#FFD966", letterSpacing: 2 }}>Teacher Notes</div>
+            <button onClick={handleSaveNotes}
+              style={{ background: notesSaved ? "#14532d" : "#1a2d52", border: `1px solid ${notesSaved ? "#22c55e" : "#2a3f6b"}`, borderRadius: 6, color: notesSaved ? "#22c55e" : "#8899bb", cursor: "pointer", padding: "4px 14px", fontSize: 11, fontWeight: 600, transition: "all 0.2s" }}>
+              {notesSaved ? "✓ Saved" : "Save Notes"}
+            </button>
+          </div>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Add grading notes, observations, or feedback for this student…"
+            style={{ flex: 1, width: "100%", background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "10px 12px", fontSize: 13, outline: "none", resize: "none", boxSizing: "border-box", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}
+          />
+        </div>
+      </div>
+
+      {/* Row 3: Set/Change PIN — centered */}
+      <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
+        <div style={{ width: "100%", maxWidth: 560 }}>
+          <SetPinPanel student={student} onUpdatePin={onUpdatePin}/>
+        </div>
+      </div>
+
+
 
       {showManage && (
-        <ManageHoldingsModal student={student} onSave={(h) => onUpdateHoldings(student.id, h)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
+        <ManageHoldingsModal student={student} prices={prices} onSave={(h, cash) => onUpdateHoldings(student.id, h, cash)} onClose={() => setShowManage(false)} onError={onError} fetchPrice={fetchPrice}/>
       )}
     </div>
   );
@@ -1012,7 +1140,7 @@ function PinModal({ studentName, onSuccess, onCancel, pinError: externalError })
 
         {/* PIN display */}
         <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 20 }}>
-          {[0,1,2,3,4].map(i => (
+          {[0,1,2,3].map(i => (
             <div key={i} style={{ width: 16, height: 16, borderRadius: "50%", background: pin.length > i ? "#FFD966" : "#1a2d52", border: "2px solid " + (pin.length > i ? "#FFD966" : "#2a3f6b"), transition: "all 0.15s" }}/>
           ))}
         </div>
@@ -1107,25 +1235,29 @@ function exportCSV(students, prices) {
 function Leaderboard({ students, prices, onSelectStudent }) {
   const ranked = students.map(s => {
     const totalInvested = s.holdings.reduce((sum, h) => sum + h.spent, 0);
-    const totalCurrent = s.holdings.reduce((sum, h) => {
+    const cashLeft = s.cashBalance != null ? s.cashBalance : BUDGET - totalInvested;
+    const stockValue = s.holdings.reduce((sum, h) => {
       const p = prices[h.ticker]?.currentPrice;
-      return sum + (p != null && h.shares != null ? p * h.shares : h.spent);
+      if (p == null || !h.purchasePrice || !h.spent) return sum + h.spent;
+      return sum + p * (h.spent / h.purchasePrice);
     }, 0);
-    const pnl = totalCurrent - totalInvested;
-    const pct = totalInvested > 0 ? (pnl / totalInvested) * 100 : null;
+    const portfolioValue = stockValue + cashLeft;
+    const pnl = portfolioValue - BUDGET;
+    const pct = (pnl / BUDGET) * 100;
+    const todayStrLB = new Date().toISOString().slice(0, 10);
+    const marketOpenLB = isMarketOpen();
     const todayPnL = s.holdings.reduce((sum, h) => {
       const p = prices[h.ticker];
-      if (!p?.currentPrice || !p?.previousClose || !h.shares) return sum;
-      return sum + (p.currentPrice - p.previousClose) * h.shares;
+      if (!p?.currentPrice || !h.purchasePrice || !h.spent) return sum;
+      const derivedShares = h.spent / h.purchasePrice;
+      const baseline = marketOpenLB && h.date !== todayStrLB ? p.previousClose : h.purchasePrice;
+      if (baseline == null) return sum;
+      return sum + (p.currentPrice - baseline) * derivedShares;
     }, 0);
     const hasData = s.holdings.some(h => prices[h.ticker]?.currentPrice);
+    const totalCurrent = portfolioValue;
     return { ...s, totalInvested, totalCurrent, pnl, pct, todayPnL, hasData };
-  }).sort((a, b) => {
-    if (a.pct == null && b.pct == null) return 0;
-    if (a.pct == null) return 1;
-    if (b.pct == null) return -1;
-    return b.pct - a.pct;
-  });
+  }).sort((a, b) => b.pct - a.pct);
 
   const medals = ["🥇", "🥈", "🥉"];
   const maxAbsPct = Math.max(...ranked.filter(s => s.pct != null).map(s => Math.abs(s.pct)), 1);
@@ -1140,8 +1272,8 @@ function Leaderboard({ students, prices, onSelectStudent }) {
             {[1, 0, 2].map(idx => {
               const s = ranked[idx];
               if (!s || s.pct == null) return <div key={idx} style={{ flex: 1 }}/>;
-              const heights = [100, 130, 80];
-              const h = heights[idx];
+              const rankHeights = [130, 100, 80]; // 1st=tallest, 2nd=medium, 3rd=shortest
+              const h = rankHeights[idx];
               return (
                 <div key={s.id} onClick={() => onSelectStudent(s.id)}
                   style={{ flex: 1, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -1150,7 +1282,7 @@ function Leaderboard({ students, prices, onSelectStudent }) {
                   <div style={{ fontSize: 11, color: "#6677aa" }}>{s.className}</div>
                   <div style={{ fontSize: idx === 0 ? 20 : 16, fontWeight: 700, color: s.pct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(s.pct)}</div>
                   <div style={{ width: "100%", height: h, background: s.pct >= 0 ? "#14532d" : "#3a0f0f", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${s.pct >= 0 ? "#22c55e44" : "#ef444444"}`, borderBottom: "none" }}>
-                    <div style={{ fontSize: 11, color: s.pct >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{idx + 1 === 1 ? "2nd" : idx + 1 === 2 ? "1st" : "3rd"}</div>
+                    <div style={{ fontSize: 11, color: s.pct >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{idx === 0 ? "1st" : idx === 1 ? "2nd" : "3rd"}</div>
                   </div>
                 </div>
               );
@@ -1206,47 +1338,95 @@ function ClassSummaryBar({ students, prices }) {
   const withHoldings = students.filter(s => s.holdings.length > 0);
   if (!withHoldings.length) return null;
 
-  const totalInvested = withHoldings.reduce((sum, s) => sum + s.holdings.reduce((a, h) => a + h.spent, 0), 0);
-  const totalCurrent = withHoldings.reduce((sum, s) =>
-    sum + s.holdings.reduce((a, h) => {
-      const p = prices[h.ticker]?.currentPrice;
-      return a + (p != null && h.shares != null ? p * h.shares : h.spent);
-    }, 0), 0);
-  const totalPnL = totalCurrent - totalInvested;
-  const avgPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
-
-  const ranked = withHoldings.map(s => {
+  // Per-student portfolio values using consistent BUDGET basis
+  const studentPortfolios = withHoldings.map(s => {
     const inv = s.holdings.reduce((a, h) => a + h.spent, 0);
-    const cur = s.holdings.reduce((a, h) => {
+    const cash = s.cashBalance != null ? s.cashBalance : BUDGET - inv;
+    const stockVal = s.holdings.reduce((a, h) => {
       const p = prices[h.ticker]?.currentPrice;
-      return a + (p != null && h.shares != null ? p * h.shares : h.spent);
+      if (p == null || !h.purchasePrice || !h.spent) return a + h.spent;
+      return a + p * (h.spent / h.purchasePrice);
     }, 0);
-    const pct = inv > 0 ? ((cur - inv) / inv) * 100 : null;
-    return { ...s, pct };
-  }).filter(s => s.pct != null).sort((a, b) => b.pct - a.pct);
+    const portfolioVal = stockVal + cash;
+    const pct = (portfolioVal - BUDGET) / BUDGET * 100;
+    return { portfolioVal, pct };
+  });
 
-  const best = ranked[0];
-  const worst = ranked[ranked.length - 1];
-  const studentsWithData = ranked.length;
+  // Total class value = sum of all portfolio values
+  const totalClassValue = studentPortfolios.reduce((s, p) => s + p.portfolioVal, 0);
+
+  // Class portfolio return = (total value - total starting budget) / total starting budget
+  const totalStartingBudget = withHoldings.length * BUDGET;
+  const classPortfolioPct = (totalClassValue - totalStartingBudget) / totalStartingBudget * 100;
+
+  // Avg student return = simple average of each student's individual P&L%
+  const avgStudentPct = studentPortfolios.reduce((s, p) => s + p.pct, 0) / studentPortfolios.length;
 
   const stats = [
-    { label: "Students Invested", value: `${studentsWithData} / ${students.length}`, color: "#FFD966" },
-    { label: "Total Class Invested", value: fmt$(totalInvested), color: "#e0e8ff" },
-    { label: "Total Class Value", value: fmt$(totalCurrent), color: "#e0e8ff" },
-    { label: "Avg Return", value: fmtPct(avgPct), color: avgPct >= 0 ? "#22c55e" : "#ef4444" },
-    best && { label: "Class Leader", value: best.name, sub: fmtPct(best.pct), color: "#22c55e" },
-    worst && best?.id !== worst?.id && { label: "Trailing", value: worst.name, sub: fmtPct(worst.pct), color: "#ef4444" },
-  ].filter(Boolean);
+    { label: "Students Invested", value: `${withHoldings.length} / ${students.length}`, color: "#FFD966" },
+    { label: "Total Class Value", value: fmt$(totalClassValue), color: "#e0e8ff" },
+    { label: "Avg Student Return", value: fmtPct(avgStudentPct), sub: "simple avg across all students", color: avgStudentPct >= 0 ? "#22c55e" : "#ef4444" },
+    { label: "Class Portfolio Return", value: fmtPct(classPortfolioPct), sub: "all budgets pooled together", color: classPortfolioPct >= 0 ? "#22c55e" : "#ef4444" },
+  ];
 
   return (
     <div style={{ background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 10, padding: "12px 20px", marginBottom: 24, display: "flex", gap: 0, flexWrap: "wrap" }}>
       {stats.map((s, i) => (
-        <div key={i} style={{ flex: "1 1 120px", padding: "6px 16px", borderLeft: i > 0 ? "1px solid #1e3560" : "none" }}>
+        <div key={i} style={{ flex: "1 1 140px", padding: "6px 16px", borderLeft: i > 0 ? "1px solid #1e3560" : "none" }}>
           <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, textTransform: "uppercase", marginBottom: 3 }}>{s.label}</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: s.color, whiteSpace: "nowrap" }}>{s.value}</div>
-          {s.sub && <div style={{ fontSize: 11, color: s.color, opacity: 0.8 }}>{s.sub}</div>}
+          {s.sub && <div style={{ fontSize: 10, color: "#445577", marginTop: 1 }}>{s.sub}</div>}
         </div>
       ))}
+    </div>
+  );
+}
+
+
+// ── Market Status Banner ──────────────────────────────────────────────────────
+function MarketStatusBanner() {
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    const getStatus = () => {
+      const now = new Date();
+      const day = now.getDay(); // 0=Sun, 6=Sat
+      if (day === 0 || day === 6) { setStatus("closed"); return; }
+
+      // Convert to ET (UTC-4 EDT / UTC-5 EST)
+      // Use Intl to get ET time accurately
+      const etStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
+      const et = new Date(etStr);
+      const h = et.getHours();
+      const m = et.getMinutes();
+      const mins = h * 60 + m;
+
+      if (mins >= 240 && mins < 570) setStatus("premarket");       // 4:00am - 9:30am
+      else if (mins >= 570 && mins < 960) setStatus("open");        // 9:30am - 4:00pm
+      else if (mins >= 960 && mins < 1200) setStatus("afterhours"); // 4:00pm - 8:00pm
+      else setStatus("closed");
+    };
+
+    getStatus();
+    const interval = setInterval(getStatus, 60000); // update every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!status) return null;
+
+  const config = {
+    premarket:   { label: "PRE-MARKET",   color: "#FFD966", bg: "#2a2200", border: "#FFD96655", dot: "#FFD966" },
+    open:        { label: "MARKET OPEN",  color: "#22c55e", bg: "#0d2a1a", border: "#22c55e55", dot: "#22c55e" },
+    afterhours:  { label: "AFTER HOURS",  color: "#a78bfa", bg: "#1a0f2e", border: "#a78bfa55", dot: "#a78bfa" },
+    closed:      { label: "MARKET CLOSED", color: "#ef4444", bg: "#2a0a0a", border: "#ef444455", dot: "#ef4444" },
+  }[status];
+
+  if (!config) return null;
+
+  return (
+    <div style={{ background: config.bg, borderBottom: `1px solid ${config.border}`, padding: "6px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: config.dot, display: "inline-block", boxShadow: `0 0 6px ${config.dot}` }}/>
+      <span style={{ fontSize: 11, fontWeight: 700, color: config.color, letterSpacing: 2 }}>{config.label}</span>
     </div>
   );
 }
@@ -1256,27 +1436,44 @@ function DailyHighlights({ students, prices }) {
   // student-level today P&L
   const studentStats = students
     .map(s => {
+      const todayStrDH = new Date().toISOString().slice(0, 10);
+      const marketOpenDH = isMarketOpen();
       const todayPnL = s.holdings.reduce((sum, h) => {
         const p = prices[h.ticker];
-        if (!p?.currentPrice || !p?.previousClose || !h.shares) return sum;
-        return sum + (p.currentPrice - p.previousClose) * h.shares;
+        if (!p?.currentPrice || !h.purchasePrice || !h.spent) return sum;
+        const derivedShares = h.spent / h.purchasePrice;
+        const baseline = marketOpenDH && h.date !== todayStrDH ? p.previousClose : h.purchasePrice;
+        if (baseline == null) return sum;
+        return sum + (p.currentPrice - baseline) * derivedShares;
       }, 0);
-      const hasData = s.holdings.some(h => prices[h.ticker]?.previousClose);
+      const hasData = s.holdings.some(h => prices[h.ticker]?.currentPrice);
       return { id: s.id, name: s.name, todayPnL, hasData };
     })
     .filter(s => s.hasData);
 
-  // unique tickers with today % change
-  const tickerStats = [];
-  const seen = new Set();
+  // ticker stats based on average student P&L % for that ticker (not raw market move)
+  const tickerMap = {};
+  const todayStrTickers = new Date().toISOString().slice(0, 10);
   students.forEach(s => s.holdings.forEach(h => {
-    if (seen.has(h.ticker)) return;
     const p = prices[h.ticker];
-    if (!p?.currentPrice || !p?.previousClose) return;
-    seen.add(h.ticker);
-    const pct = ((p.currentPrice - p.previousClose) / p.previousClose) * 100;
-    tickerStats.push({ ticker: h.ticker, companyName: p.companyName || h.ticker, pct });
+    if (!p?.currentPrice || !h.purchasePrice || !h.spent) return;
+    const marketOpenTickers = isMarketOpen();
+    const baseline = marketOpenTickers && h.date !== todayStrTickers ? p.previousClose : h.purchasePrice;
+    if (baseline == null) return;
+    const pct = ((p.currentPrice - baseline) / baseline) * 100;
+    if (!tickerMap[h.ticker]) {
+      tickerMap[h.ticker] = { ticker: h.ticker, companyName: p.companyName || h.ticker, pctSum: 0, count: 0 };
+    }
+    tickerMap[h.ticker].pctSum += pct;
+    tickerMap[h.ticker].count += 1;
   }));
+  const tickerStats = Object.values(tickerMap)
+    .filter(t => t.count > 0)
+    .map(t => ({
+      ticker: t.ticker,
+      companyName: t.companyName,
+      pct: t.pctSum / t.count,
+    }));
 
   if (!studentStats.length && !tickerStats.length) return null;
 
@@ -1296,12 +1493,12 @@ function DailyHighlights({ students, prices }) {
       value: botStudent.todayPnL >= 0 ? `+${fmt$(botStudent.todayPnL)}` : fmt$(botStudent.todayPnL),
       color: "#ef4444", border: "#3a0f0f"
     },
-    topTicker && {
+    tickerStats.length > 0 && topTicker && {
       icon: "🚀", label: "HOTTEST STOCK TODAY", name: topTicker.ticker,
       sub: topTicker.companyName !== topTicker.ticker ? topTicker.companyName : null,
       value: fmtPct(topTicker.pct), color: "#22c55e", border: "#14532d"
     },
-    botTicker && topTicker?.ticker !== botTicker?.ticker && {
+    tickerStats.length > 1 && botTicker && topTicker?.ticker !== botTicker?.ticker && {
       icon: "🧊", label: "COLDEST STOCK TODAY", name: botTicker.ticker,
       sub: botTicker.companyName !== botTicker.ticker ? botTicker.companyName : null,
       value: fmtPct(botTicker.pct), color: "#ef4444", border: "#3a0f0f"
@@ -1336,25 +1533,32 @@ function DailyHighlights({ students, prices }) {
   );
 }
 
-function StudentCard({ student, prices, onClick, onManage }) {
+function StudentCard({ student, prices, onClick, onManage, isUnlocked }) {
   const totalInvested = student.holdings.reduce((s, h) => s + h.spent, 0);
-  const cashLeft = BUDGET - totalInvested;
-  const currentVals = student.holdings.map(h => {
+  const cashLeft = student.cashBalance != null ? student.cashBalance : BUDGET - totalInvested;
+  const stockValue = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker]?.currentPrice;
-    return p != null && h.shares != null ? p * h.shares : h.spent;
-  });
-  const totalCurrent = currentVals.reduce((a, b) => a + b, 0);
-  const pnl = totalCurrent - totalInvested;
-  const pct = totalInvested > 0 ? (pnl / totalInvested) * 100 : 0;
+    if (p == null || !h.purchasePrice || !h.spent) return s + h.spent;
+    return s + p * (h.spent / h.purchasePrice);
+  }, 0);
+  const portfolioValue = stockValue + cashLeft; // total portfolio including cash
+  const pnl = portfolioValue - BUDGET;          // gain/loss vs starting budget
+  const pct = (pnl / BUDGET) * 100;
+  const todayStrCard = new Date().toISOString().slice(0, 10);
+  const marketOpenCard = isMarketOpen();
   const todayPnL = student.holdings.reduce((s, h) => {
     const p = prices[h.ticker];
-    if (!p?.currentPrice || !p?.previousClose || !h.shares) return s;
-    return s + (p.currentPrice - p.previousClose) * h.shares;
+    if (!p?.currentPrice || !h.purchasePrice || !h.spent) return s;
+    const derivedShares = h.spent / h.purchasePrice;
+    const baseline = marketOpenCard && h.date !== todayStrCard ? p.previousClose : h.purchasePrice;
+    if (baseline == null) return s;
+    return s + (p.currentPrice - baseline) * derivedShares;
   }, 0);
+  const todayPct = (todayPnL / BUDGET) * 100;
   const hasHoldings = student.holdings.length > 0;
   const isPos = pct >= 0;
   const todayPos = todayPnL >= 0;
-  const spark = hasHoldings ? [totalInvested, totalInvested * (1 + (pct * 0.3 / 100)), totalInvested + todayPnL * 0.5, totalCurrent] : [];
+  const spark = hasHoldings ? [BUDGET, BUDGET * (1 + (pct * 0.3 / 100)), BUDGET + todayPnL * 0.5, portfolioValue] : [];
 
   return (
     <div style={{ background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, overflow: "hidden", transition: "all 0.2s", position: "relative" }}
@@ -1369,6 +1573,7 @@ function StudentCard({ student, prices, onClick, onManage }) {
               <div style={{ fontWeight: 700, fontSize: 14, color: "#e0e8ff" }}>{student.name}</div>
               {student.notes && <span title="Has teacher notes" style={{ width: 7, height: 7, borderRadius: "50%", background: "#FFD966", flexShrink: 0, display: "inline-block" }}/>}
               {!student.pinHash && <span title="No PIN set — teacher PIN required" style={{ fontSize: 9, color: "#ef4444", background: "#3a0f0f", border: "1px solid #ef444444", borderRadius: 3, padding: "1px 4px", letterSpacing: 0.5 }}>NO PIN</span>}
+              {isUnlocked && <span title="Unlocked this session" style={{ fontSize: 9, color: "#22c55e", background: "#0d2a1a", border: "1px solid #22c55e44", borderRadius: 3, padding: "1px 4px", letterSpacing: 0.5 }}>🔓</span>}
             </div>
             <div style={{ fontSize: 11, color: "#5566aa", marginTop: 1 }}>
               {hasHoldings ? (
@@ -1401,8 +1606,8 @@ function StudentCard({ student, prices, onClick, onManage }) {
           <div>
             {hasHoldings ? (
               <>
-                <div style={{ fontSize: 12, color: "#8899bb" }}>Value: <span style={{ color: "#FFD966", fontWeight: 600 }}>{fmt$(totalCurrent)}</span></div>
-                <div style={{ fontSize: 11, color: todayPos ? "#22c55e" : "#ef4444", marginTop: 2 }}>Today: {todayPos ? "+" : ""}{fmt$(todayPnL)}</div>
+                <div style={{ fontSize: 12, color: "#8899bb" }}>Value: <span style={{ color: "#FFD966", fontWeight: 600 }}>{fmt$(portfolioValue)}</span></div>
+                <div style={{ fontSize: 11, color: todayPos ? "#22c55e" : "#ef4444", marginTop: 2 }}>Today: {fmtPct(todayPct)}</div>
               </>
             ) : (
               <div style={{ fontSize: 11, color: "#445577", fontStyle: "italic" }}>Budget: {fmt$(BUDGET)}</div>
@@ -1450,7 +1655,21 @@ function StudentCard({ student, prices, onClick, onManage }) {
 }
 
 export default function App() {
-  const [students, setStudents] = useState([]);
+ const [students, setStudents] = useState([]);
+
+// Sync students from Firebase on mount
+useEffect(() => {
+  const studentsRef = ref(db, 'students');
+  const unsub = onValue(studentsRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      setStudents(Object.values(data));
+    } else {
+      setStudents([]);
+    }
+  });
+  return () => unsub();
+}, []);
   const [prices, setPrices] = useState({});
   const [detail, setDetail] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -1464,7 +1683,21 @@ export default function App() {
   const [sortBy, setSortBy] = useState("default"); // "default"|"pct_desc"|"pct_asc"|"name"|"today"
   const [pinPrompt, setPinPrompt] = useState(null); // { studentId, mode: "detail"|"manage" }
   const [pinError, setPinErrorState] = useState("");
+  const [teacherMode, setTeacherMode] = useState(false);
+  const [teacherModePrompt, setTeacherModePrompt] = useState(false);
+  const [unlockedStudents, setUnlockedStudents] = useState(new Set()); // studentIds unlocked this session
   const fileRef = useRef();
+
+  // Validate PIN for teacher mode activation
+  const handleTeacherModePin = async (hash) => {
+    if (hash === TEACHER_PIN_HASH) {
+      setTeacherMode(true);
+      setTeacherModePrompt(false);
+      setPinErrorState("");
+    } else {
+      setPinErrorState("Incorrect PIN. Try again.");
+    }
+  };
 
   // Validate a submitted PIN hash against a student
   const handlePinSubmit = async (hash) => {
@@ -1475,21 +1708,27 @@ export default function App() {
     if (isTeacher || isStudent) {
       setPinPrompt(null);
       setPinErrorState("");
+      // Unlock this student for the rest of the session
+      setUnlockedStudents(prev => new Set([...prev, studentId]));
       if (mode === "detail") setDetail(studentId);
       else setManageId(studentId);
     } else {
       setPinErrorState("Incorrect PIN. Try again.");
-      // We surface this back through the modal via re-render with error
     }
   };
 
   const requestAccess = (studentId, mode) => {
+    if (teacherMode || unlockedStudents.has(studentId)) {
+      // Skip PIN — teacher mode active or student already unlocked this session
+      if (mode === "detail") setDetail(studentId);
+      else setManageId(studentId);
+      return;
+    }
     setPinErrorState("");
     setPinPrompt({ studentId, mode });
   };
 
-  const allTickers = [...new Set(students.flatMap(s => s.holdings.map(h => h.ticker)))];
-
+  const allTickers = [...new Set(students.flatMap(s => (s.holdings || []).map(h => h.ticker)))];
   const fetchPrice = useCallback(async (ticker) => {
     const result = await fetchStockPrice(ticker);
     if (!result.error) setPrices(prev => ({ ...prev, [ticker]: result }));
@@ -1536,58 +1775,102 @@ export default function App() {
     setRefreshing(false);
   }, []);
 
-  useEffect(() => { if (allTickers.length) refreshPrices(allTickers); }, [students.length]);
-
+  useEffect(() => {
+  const studentsRef = ref(db, 'students');
+  const unsub = onValue(studentsRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      const loaded = Object.values(data).map(s => ({
+        ...s,
+        holdings: s.holdings || [],
+        history: s.history || [],
+        notes: s.notes || "",
+        cashBalance: s.cashBalance != null ? s.cashBalance : BUDGET - (s.holdings || []).reduce((a, h) => a + (h.spent || 0), 0),
+      }));
+      setStudents(loaded);
+    } else {
+      setStudents([]);
+    }
+  });
+  return () => unsub();
+}, []);
   const classes = [...new Set(students.map(s => s.className))];
 
-  const handleAddStudent = (student) => setStudents(prev => [...prev, student]);
+  const handleAddStudent = (student) => {
+  set(ref(db, `students/${student.id}`), student);
+};
 
   const handleUpdateNotes = (studentId, notes) => {
-    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, notes } : s));
-  };
+  update(ref(db, `students/${studentId}`), { notes });
+};
 
   const handleUpdatePin = (studentId, pinHash) => {
-    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pinHash } : s));
+    update(ref(db, `students/${studentId}`), { pinHash });
   };
 
-  const handleUpdateHoldings = (studentId, holdings) => {
-    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, holdings } : s));
+  const handleUpdateClass = (studentId, className) => {
+    update(ref(db, `students/${studentId}`), { className });
+  };
+
+  const handleFixBalance = (studentId) => {
+    const student = students.find(s => s.id === studentId);
+    if (!student) return;
+    const correctBalance = BUDGET - (student.holdings || []).reduce((s, h) => s + (h.spent || 0), 0);
+    update(ref(db, `students/${studentId}`), { cashBalance: correctBalance });
+  };
+
+  const handleFixAllBalances = () => {
+    students.forEach(s => {
+      const correctBalance = BUDGET - (s.holdings || []).reduce((sum, h) => sum + (h.spent || 0), 0);
+      update(ref(db, `students/${s.id}`), { cashBalance: correctBalance });
+    });
+  };
+
+  const handleUpdateHoldings = (studentId, holdings, cashBalance) => {
+    const updateData = { holdings };
+    if (cashBalance !== undefined) updateData.cashBalance = cashBalance;
+    update(ref(db, `students/${studentId}`), updateData);
     const tickers = holdings.map(h => h.ticker).filter(Boolean);
     if (tickers.length) refreshPrices(tickers);
   };
 
   const handleDelete = (id) => { setConfirmDeleteId(id); };
   const confirmDelete = () => {
-    setStudents(prev => prev.filter(s => s.id !== confirmDeleteId));
-    setDetail(null);
-    setConfirmDeleteId(null);
-  };
+  remove(ref(db, `students/${confirmDeleteId}`));
+  setDetail(null);
+  setConfirmDeleteId(null);
+};
 
   const handleSave = () => {
     const blob = new Blob([JSON.stringify({ students }, null, 2)], { type: "application/json" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "stock-roster.json"; a.click();
   };
   const handleLoad = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const { students: loaded } = JSON.parse(ev.target.result);
-        setStudents(loaded);
-        const tickers = [...new Set(loaded.flatMap(s => s.holdings.map(h => h.ticker)))];
-        if (tickers.length) refreshPrices(tickers);
-      } catch { setErrorMsg("Failed to load file — invalid format."); }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const { students: loaded } = JSON.parse(ev.target.result);
+      loaded.forEach(s => set(ref(db, `students/${s.id}`), s));
+      const tickers = [...new Set(loaded.flatMap(s => s.holdings.map(h => h.ticker)))];
+      if (tickers.length) refreshPrices(tickers);
+    } catch { setErrorMsg("Failed to load file — invalid format."); }
   };
+  reader.readAsText(file);
+  e.target.value = "";
+};
 
   const detailStudent = detail ? students.find(s => s.id === detail) : null;
   const manageStudent = manageId ? students.find(s => s.id === manageId) : null;
 
   if (detailStudent) return (
     <>
-      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onError={setErrorMsg} fetchPrice={fetchPrice}/>
+      {teacherMode && (
+        <div style={{ background: "#0d2a1a", borderBottom: "1px solid #22c55e44", padding: "6px 24px", textAlign: "center", fontSize: 11, color: "#22c55e", fontWeight: 700, letterSpacing: 1 }}>
+          🔑 TEACHER MODE ACTIVE — PIN BYPASS ENABLED
+        </div>
+      )}
+      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onUpdateClass={handleUpdateClass} onError={setErrorMsg} fetchPrice={fetchPrice}/>
       {errorMsg && <ErrorToast message={errorMsg} onClose={() => setErrorMsg(null)}/>}
       {confirmDeleteId && (
         <ConfirmModal
@@ -1634,9 +1917,26 @@ export default function App() {
                 </button>
               ))}
             </div>
+            {/* Teacher Mode Toggle */}
+            {teacherMode ? (
+              <button onClick={() => setTeacherMode(false)}
+                style={{ background: "#14532d", border: "1px solid #22c55e88", borderRadius: 8, color: "#22c55e", cursor: "pointer", padding: "7px 14px", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", display: "inline-block", boxShadow: "0 0 6px #22c55e" }}/>
+                Teacher Mode ON
+              </button>
+            ) : (
+              <button onClick={() => { setPinErrorState(""); setTeacherModePrompt(true); }}
+                style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "7px 14px", fontSize: 12 }}>
+                🔑 Teacher Mode
+              </button>
+            )}
             <button onClick={() => refreshPrices(allTickers)} disabled={refreshing || !allTickers.length}
               style={{ background: refreshing ? "#1a2d52" : "#1C4587", border: "1px solid #2a4a8a", borderRadius: 8, color: refreshing ? "#5566aa" : "#e0e8ff", cursor: refreshing ? "default" : "pointer", padding: "7px 14px", fontSize: 12 }}>
               {refreshing ? "⟳ Updating…" : "⟳ Refresh"}
+            </button>
+            <button onClick={handleFixAllBalances} disabled={!students.length} title="Recalculate cash balance for ALL students"
+              style={{ background: "#1a2d52", border: "1px solid #f59e0b55", borderRadius: 8, color: students.length ? "#f59e0b" : "#445577", cursor: students.length ? "pointer" : "default", padding: "7px 14px", fontSize: 12, fontWeight: 600 }}>
+              ⚖️ Fix All
             </button>
             <button onClick={() => exportCSV(students, prices)} disabled={!students.length}
               style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: students.length ? "#8899bb" : "#2a3f6b", cursor: students.length ? "pointer" : "default", padding: "7px 14px", fontSize: 12 }}>📤 Export CSV</button>
@@ -1654,6 +1954,7 @@ export default function App() {
           </div>
         </div>
       </div>
+      <MarketStatusBanner/>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
         {!students.length ? (
@@ -1670,15 +1971,18 @@ export default function App() {
             const sortStudents = (arr) => {
               const withStats = arr.map(s => {
                 const inv = s.holdings.reduce((a, h) => a + h.spent, 0);
-                const cur = s.holdings.reduce((a, h) => {
+                const cash = s.cashBalance != null ? s.cashBalance : BUDGET - inv;
+                const stockVal = s.holdings.reduce((a, h) => {
                   const p = prices[h.ticker]?.currentPrice;
-                  return a + (p != null && h.shares != null ? p * h.shares : h.spent);
+                  if (p == null || !h.purchasePrice || !h.spent) return a + h.spent;
+                  return a + p * (h.spent / h.purchasePrice);
                 }, 0);
-                const pct = inv > 0 ? ((cur - inv) / inv) * 100 : null;
+                const cur = stockVal + cash;
+                const pct = ((cur - BUDGET) / BUDGET) * 100;
                 const today = s.holdings.reduce((a, h) => {
                   const p = prices[h.ticker];
-                  if (!p?.currentPrice || !p?.previousClose || !h.shares) return a;
-                  return a + (p.currentPrice - p.previousClose) * h.shares;
+                  if (!p?.currentPrice || !h.purchasePrice || !h.spent) return a;
+                  return a + (p.currentPrice - h.purchasePrice) * (h.spent / h.purchasePrice);
                 }, 0);
                 return { ...s, _pct: pct, _today: today };
               });
@@ -1718,7 +2022,7 @@ export default function App() {
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
                       {clsStudents.map(s => (
-                        <StudentCard key={s.id} student={s} prices={prices} onClick={() => requestAccess(s.id, "detail")} onManage={() => requestAccess(s.id, "manage")}/>
+                        <StudentCard key={s.id} student={s} prices={prices} onClick={() => requestAccess(s.id, "detail")} onManage={() => requestAccess(s.id, "manage")} isUnlocked={teacherMode || unlockedStudents.has(s.id)}/>
                       ))}
                     </div>
                   </div>
@@ -1736,7 +2040,8 @@ export default function App() {
       {manageStudent && (
         <ManageHoldingsModal
           student={manageStudent}
-          onSave={(h) => { handleUpdateHoldings(manageStudent.id, h); setManageId(null); }}
+          prices={prices}
+          onSave={(h, cash) => { handleUpdateHoldings(manageStudent.id, h, cash); setManageId(null); }}
           onClose={() => setManageId(null)}
           onError={setErrorMsg}
           fetchPrice={fetchPrice}
@@ -1762,6 +2067,14 @@ export default function App() {
           />
         );
       })()}
+      {teacherModePrompt && (
+        <PinModal
+          studentName="Teacher Access"
+          pinError={pinError}
+          onSuccess={handleTeacherModePin}
+          onCancel={() => { setTeacherModePrompt(false); setPinErrorState(""); }}
+        />
+      )}
     </div>
   );
 }
