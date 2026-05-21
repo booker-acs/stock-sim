@@ -231,7 +231,7 @@ function isMarketOpen() {
   const mins = et.getHours() * 60 + et.getMinutes();
   return mins >= 570 && mins < 960; // 9:30am to 4:00pm
 }
-const TEACHER_PIN_HASH = "555e1980f5d793081110be32ab6bc31928eebaf008d1273f189c0ed29e50f2a4"; // sha256 of teacher PIN
+const TEACHER_PIN_HASH = "f823fed903848e7a12e6e04eca7a1a57e56a39a668f4911d48ef6386015646ed"; // sha256 of teacher PIN
 const hashPin = async (pin) => {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
@@ -1904,7 +1904,7 @@ function SetPinPanel({ student, onUpdatePin }) {
   );
 }
 
-function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onUpdateClass, onError, fetchPrice, teacherMode }) {
+function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, onUpdateNotes, onUpdatePin, onUpdateClass, onResetStudent, onError, fetchPrice, teacherMode }) {
   const [showManage, setShowManage] = useState(false);
 
   // Scroll to top when detail view opens
@@ -1981,6 +1981,13 @@ function StudentDetail({ student, prices, onBack, onDelete, onUpdateHoldings, on
           <button onClick={() => setShowManage(true)} style={{ background: "#1C4587", border: "1px solid #2a4a8a", borderRadius: 8, color: "#e0e8ff", cursor: "pointer", padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
             ✏️ Manage Holdings
           </button>
+          {teacherMode && (
+            <button onClick={() => onResetStudent(student.id)}
+              title="Reset student to $10,000 with no holdings"
+              style={{ background: "#2a0a0a", border: "1px solid #ef444455", borderRadius: 8, color: "#ef4444", cursor: "pointer", padding: "8px 14px", fontSize: 12, fontWeight: 600 }}>
+              🔄 Reset
+            </button>
+          )}
           <button onClick={() => onDelete(student.id)} style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 8, color: "#ef4444", cursor: "pointer", padding: "8px 14px", fontSize: 12 }}>Remove</button>
         </div>
 
@@ -2871,6 +2878,13 @@ useEffect(() => {
     update(ref(db, `students/${studentId}`), { className });
   };
 
+  const handleResetStudent = (studentId) => {
+    const student = students.find(s => s.id === studentId);
+    if (!student) return;
+    if (!window.confirm(`Reset ${student.name} to $10,000 with no holdings? This cannot be undone.`)) return;
+    update(ref(db, `students/${studentId}`), { holdings: [], cashBalance: BUDGET });
+  };
+
   const handleFixBalance = (studentId) => {
     const student = students.find(s => s.id === studentId);
     if (!student) return;
@@ -2879,31 +2893,62 @@ useEffect(() => {
   };
 
   const handleFixAllBalances = async () => {
-    for (const s of students) {
-      let holdings = [...(s.holdings || [])];
-      let changed = false;
+    const today = new Date().toISOString().slice(0, 10);
 
-      // Fix exploited holdings — any with date before SIM_START_DATE
-      const exploited = holdings.filter(h => h.date && h.date < SIM_START_DATE);
-      if (exploited.length) {
-        const tickers = [...new Set(exploited.map(h => h.ticker))];
-        const priceMap = {};
-        await Promise.all(tickers.map(async t => {
-          const p = await fetchStockPrice(t);
-          if (p?.currentPrice) priceMap[t] = p.currentPrice;
-        }));
-        holdings = holdings.map(h => {
-          if (!h.date || h.date >= SIM_START_DATE) return h;
-          const newPrice = priceMap[h.ticker] || h.purchasePrice;
-          return { ...h, purchasePrice: newPrice, shares: h.spent / newPrice, date: SIM_START_DATE };
-        });
-        changed = true;
-      }
+    // Detect corrupted students — total spent > BUDGET or pre-SIM_START_DATE holdings
+    const corrupted = [];
+    const needsDateFix = [];
+    students.forEach(s => {
+      const totalSpent = (s.holdings || []).reduce((sum, h) => sum + (h.spent || 0), 0);
+      const hasOldDate = (s.holdings || []).some(h => h.date && h.date < SIM_START_DATE);
+      if (totalSpent > BUDGET * 1.1) corrupted.push(s); // more than 10% over budget = corrupted
+      else if (hasOldDate) needsDateFix.push(s);
+    });
 
-      const correctBalance = BUDGET - holdings.reduce((sum, h) => sum + (h.spent || 0), 0);
-      update(ref(db, `students/${s.id}`), { holdings: changed ? holdings : s.holdings, cashBalance: correctBalance });
-      await new Promise(r => setTimeout(r, 150)); // avoid rate limiting
+    // Build confirm message
+    let msg = "";
+    if (corrupted.length) msg += "⚠️ " + corrupted.length + " student" + (corrupted.length > 1 ? "s" : "") + " with corrupted data (spent > $10,000):\n" + corrupted.map(s => "  • " + s.name).join("\n") + "\nThese will be RESET to $10,000 with no holdings.\n\n";
+    if (needsDateFix.length) msg += "📅 " + needsDateFix.length + " student" + (needsDateFix.length > 1 ? "s" : "") + " with historical purchase dates:\n" + needsDateFix.map(s => "  • " + s.name).join("\n") + "\nThese will have purchase prices updated to today's price.\n\n";
+    const clean = students.length - corrupted.length - needsDateFix.length;
+    msg += "✓ " + clean + " student" + (clean !== 1 ? "s" : "") + " with clean data — cash balances will be recalculated.\n\nProceed?";
+
+    if (!window.confirm(msg)) return;
+
+    // Process corrupted — reset entirely
+    for (const s of corrupted) {
+      update(ref(db, `students/${s.id}`), { holdings: [], cashBalance: BUDGET });
+      await new Promise(r => setTimeout(r, 100));
     }
+
+    // Process date fixes — re-fetch today's price for old-dated holdings
+    for (const s of needsDateFix) {
+      let holdings = [...(s.holdings || [])];
+      const exploited = holdings.filter(h => h.date && h.date < SIM_START_DATE);
+      const tickers = [...new Set(exploited.map(h => h.ticker))];
+      const priceMap = {};
+      await Promise.all(tickers.map(async t => {
+        const p = await fetchStockPrice(t);
+        if (p?.currentPrice) priceMap[t] = p.currentPrice;
+      }));
+      holdings = holdings.map(h => {
+        if (!h.date || h.date >= SIM_START_DATE) return h;
+        const newPrice = priceMap[h.ticker] || h.purchasePrice;
+        return { ...h, purchasePrice: newPrice, shares: h.spent / newPrice, date: SIM_START_DATE };
+      });
+      const correctBalance = BUDGET - holdings.reduce((sum, h) => sum + (h.spent || 0), 0);
+      update(ref(db, `students/${s.id}`), { holdings, cashBalance: correctBalance });
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    // Process clean students — just recalculate cash balance
+    const cleanStudents = students.filter(s => !corrupted.includes(s) && !needsDateFix.includes(s));
+    for (const s of cleanStudents) {
+      const correctBalance = BUDGET - (s.holdings || []).reduce((sum, h) => sum + (h.spent || 0), 0);
+      update(ref(db, `students/${s.id}`), { cashBalance: correctBalance });
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    alert("✓ Fix All complete.");
   };
 
   const handleUpdateHoldings = (studentId, holdings, cashBalance) => {
@@ -2982,7 +3027,7 @@ useEffect(() => {
           🔑 TEACHER MODE ACTIVE — PIN BYPASS ENABLED
         </div>
       )}
-      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onUpdateClass={handleUpdateClass} onError={setErrorMsg} fetchPrice={fetchPrice} teacherMode={teacherMode}/>
+      <StudentDetail student={detailStudent} prices={prices} onBack={() => setDetail(null)} onDelete={handleDelete} onUpdateHoldings={handleUpdateHoldings} onUpdateNotes={handleUpdateNotes} onUpdatePin={handleUpdatePin} onUpdateClass={handleUpdateClass} onResetStudent={handleResetStudent} onError={setErrorMsg} fetchPrice={fetchPrice} teacherMode={teacherMode}/>
       {errorMsg && <ErrorToast message={errorMsg} onClose={() => setErrorMsg(null)}/>}
       {confirmDeleteId && (
         <ConfirmModal
