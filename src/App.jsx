@@ -51,6 +51,7 @@ const STOCK_PERSONALITIES = {
 const AI_CHALLENGER_ROSTER = [
   {
     id: "mr-booker",
+    portrait: "/portraits/mr-booker.webp",
     name: "Mr. Booker", emoji: "🏫",
     quote: "Risk? I don't have money to throw around.",
     description: "Ultra-conservative. Teachers on a budget don't gamble.",
@@ -63,6 +64,7 @@ const AI_CHALLENGER_ROSTER = [
   },
   {
     id: "shkreli",
+    portrait: "/portraits/shkreli.webp",
     name: "Martin Shkreli", emoji: "💊",
     quote: "I'm not actually that bad of a guy... okay maybe a little.",
     description: "High risk, morally questionable, occasionally genius.",
@@ -75,6 +77,7 @@ const AI_CHALLENGER_ROSTER = [
   },
   {
     id: "barbara",
+    portrait: "/portraits/barbara.webp",
     name: "Barbara Corcoran", emoji: "🦈",
     quote: "The best time to invest was yesterday. The second best time is now.",
     description: "Gut-instinct bets on brands people believe in.",
@@ -87,6 +90,7 @@ const AI_CHALLENGER_ROSTER = [
   },
   {
     id: "claude",
+    portrait: "/portraits/claude.webp",
     name: "Claude A.", emoji: "🤖",
     quote: "I ran the numbers. Then I ran them again.",
     description: "AI-forward with defensive hedging. Methodical.",
@@ -100,6 +104,7 @@ const AI_CHALLENGER_ROSTER = [
   },
   {
     id: "cramer",
+    portrait: "/portraits/cramer.webp",
     name: "Jim Cramer", emoji: "📰",
     quote: "BUY BUY BUY! ...sell.",
     description: "Loudly confident, historically wrong.",
@@ -112,6 +117,7 @@ const AI_CHALLENGER_ROSTER = [
   },
   {
     id: "buffett-jr",
+    portrait: "/portraits/buffett-jr.webp",
     name: "Warren Buffett Jr.", emoji: "🐢",
     quote: "The stock market is a device for transferring money from the impatient to the patient.",
     description: "Value investing. Wrong format, right mindset.",
@@ -124,6 +130,7 @@ const AI_CHALLENGER_ROSTER = [
   },
   {
     id: "mrbeast",
+    portrait: "/portraits/mrbeast.webp",
     name: "MrBeast", emoji: "👾",
     quote: "If I invested in boring stocks I couldn't afford to bury people in chocolate.",
     description: "Reinvest everything. Bet on growth at all costs.",
@@ -136,6 +143,7 @@ const AI_CHALLENGER_ROSTER = [
   },
   {
     id: "bronny",
+    portrait: "/portraits/bronny.webp",
     name: "Bronny James", emoji: "🏀",
     quote: "Legacy is built in the long game.",
     description: "Safe, brand-name picks. Doesn't need the money anyway.",
@@ -521,7 +529,7 @@ function ArcadeEventToast({ events, onDismiss }) {
 }
 
 // ── Arcade Student Card ───────────────────────────────────────────────────────
-function ArcadeStudentCard({ name, emoji, description, picks, prices, budget, cashBalance, isPlayer, onClick }) {
+function ArcadeStudentCard({ name, emoji, portrait, description, picks, prices, budget, cashBalance, isPlayer, onClick }) {
   const stockValue = picks.reduce((s, p) => {
     const price = prices[p.ticker]?.price;
     if (!price || !p.purchasePrice || !p.spent) return s + p.spent;
@@ -545,13 +553,21 @@ function ArcadeStudentCard({ name, emoji, description, picks, prices, budget, ca
       onMouseLeave={e => { if (onClick) { e.currentTarget.style.borderColor = isPlayer ? "#7c3aed" : "#1e3560"; e.currentTarget.style.transform = "translateY(0)"; }}}>
       <div style={{ position: "absolute", top: 0, right: 0, width: 3, height: "100%", background: isPos ? "#22c55e" : "#ef4444", borderRadius: "0 12px 12px 0" }}/>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {emoji && <span style={{ fontSize: 14 }}>{emoji}</span>}
-            <span style={{ fontWeight: 700, fontSize: 14, color: isPlayer ? "#a78bfa" : "#e0e8ff" }}>{name}</span>
-            {isPlayer && <span style={{ fontSize: 9, color: "#7c3aed", background: "#2a1a4e", border: "1px solid #7c3aed44", borderRadius: 3, padding: "1px 5px" }}>YOU</span>}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          {portrait ? (
+            <img src={portrait} alt={name}
+              onError={e => { e.currentTarget.style.display="none"; }}
+              style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: "1px solid #1e3560" }}/>
+          ) : emoji ? (
+            <span style={{ fontSize: 22, flexShrink: 0 }}>{emoji}</span>
+          ) : null}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontWeight: 700, fontSize: 14, color: isPlayer ? "#a78bfa" : "#e0e8ff" }}>{name}</span>
+              {isPlayer && <span style={{ fontSize: 9, color: "#7c3aed", background: "#2a1a4e", border: "1px solid #7c3aed44", borderRadius: 3, padding: "1px 5px" }}>YOU</span>}
+            </div>
+            <div style={{ fontSize: 11, color: "#5566aa", marginTop: 1 }}>{picks.length} stock{picks.length !== 1 ? "s" : ""}{description ? ` · ${description}` : ""}</div>
           </div>
-          <div style={{ fontSize: 11, color: "#5566aa", marginTop: 1 }}>{picks.length} stock{picks.length !== 1 ? "s" : ""}{description ? ` · ${description}` : ""}</div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: isPos ? "#22c55e" : "#ef4444" }}>{fmtPct(pct)}</div>
@@ -874,6 +890,7 @@ function ArcadeSession({ portfolio: initialPortfolio, prices: initialPrices, set
               key={c.id}
               name={c.name}
               emoji={c.emoji}
+              portrait={c.portrait}
               description={c.description}
               picks={c.picks}
               prices={activePrices}
@@ -1136,7 +1153,13 @@ function ArcadeStockPicker({ onStart, onCancel }) {
                   <div key={c.id} onClick={() => !disabled && toggleChallenger(c.id)}
                     style={{ background: selected ? "#1a0a3a" : "#0a1628", border: `2px solid ${selected ? "#7c3aed" : disabled ? "#1a1a2a" : "#1e3560"}`, borderRadius: 10, padding: "12px 14px", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1, transition: "all 0.15s" }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                      <span style={{ fontSize: 22, flexShrink: 0 }}>{c.emoji}</span>
+                      {c.portrait ? (
+                        <img src={c.portrait} alt={c.name}
+                          onError={e => { e.currentTarget.style.display="none"; }}
+                          style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}/>
+                      ) : (
+                        <span style={{ fontSize: 22, flexShrink: 0 }}>{c.emoji}</span>
+                      )}
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div style={{ fontWeight: 700, fontSize: 13, color: selected ? "#a78bfa" : "#e0e8ff" }}>{c.name}</div>
@@ -1167,8 +1190,12 @@ function ArcadeStockPicker({ onStart, onCancel }) {
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               {selectedChallengers.map(c => (
                 <div key={c.id} style={{ flex: 1, background: "#0a1628", border: "1px solid #1e3560", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                  <div style={{ fontSize: 16 }}>{c.emoji}</div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#e0e8ff", marginTop: 2 }}>{c.name}</div>
+                  {c.portrait ? (
+                    <img src={c.portrait} alt={c.name} style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", margin: "0 auto 4px", display: "block" }}/>
+                  ) : (
+                    <div style={{ fontSize: 16 }}>{c.emoji}</div>
+                  )}
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#e0e8ff" }}>{c.name}</div>
                 </div>
               ))}
             </div>
