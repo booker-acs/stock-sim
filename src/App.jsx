@@ -116,7 +116,7 @@ const AI_CHALLENGER_ROSTER = [
     quote: "The stock market is a device for transferring money from the impatient to the patient.",
     description: "Value investing. Wrong format, right mindset.",
     picks: [
-      { ticker: "BRK", spent: 2500 },
+      { ticker: "BRK-B", spent: 2500 },
       { ticker: "AAPL", spent: 2500 },
       { ticker: "BAC", spent: 2500 },
       { ticker: "AXP", spent: 2500 },
