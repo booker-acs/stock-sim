@@ -818,44 +818,65 @@ function ArcadeSession({ portfolio: initialPortfolio, prices: initialPrices, set
           ))}
         </div>
 
-        {/* Alert badges for big movers */}
-        {(() => {
-          const alerts = uniqueTickers.map(ticker => {
-            const p = prices[ticker];
-            if (!p?.price || !p?.prevPrice) return null;
-            const pct = ((p.price - p.prevPrice) / p.prevPrice) * 100;
-            if (Math.abs(pct) < ALERT_THRESHOLD) return null;
-            return { ticker, pct, companyName: p.companyName };
-          }).filter(Boolean);
-          if (!alerts.length) return null;
-          return (
-            <div style={{ background: "#0f1a2e", border: "1px solid #1e3560", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
-              <div style={{ fontSize: 10, color: "#5544aa", letterSpacing: 1.5, marginBottom: 8 }}>RECENT MOVERS</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {alerts.map(a => (
-                  <span key={a.ticker} style={{ background: a.pct >= 0 ? "#14532d" : "#3a0f0f", border: `1px solid ${a.pct >= 0 ? "#22c55e55" : "#ef444455"}`, borderRadius: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: a.pct >= 0 ? "#22c55e" : "#ef4444" }}>
-                    {a.pct >= 0 ? "▲" : "▼"} {a.ticker} {Math.abs(a.pct).toFixed(1)}%
-                  </span>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Live price ticker tape */}
+        {/* Auto-scrolling ticker tape */}
         {started && (
-          <div style={{ background: "#0a0f1a", border: "1px solid #1a1a3a", borderRadius: 8, padding: "8px 14px", display: "flex", gap: 20, overflowX: "auto", marginBottom: 16 }}>
-            {uniqueTickers.map(ticker => {
-              const p = prices[ticker];
-              const change = p?.prevPrice ? ((p.price - p.prevPrice) / p.prevPrice * 100) : 0;
-              return (
-                <div key={ticker} style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                  <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#a78bfa" }}>{ticker}</span>
-                  <span style={{ fontSize: 11, color: "#e0e8ff" }}>{fmt$(p?.price)}</span>
-                  <span style={{ fontSize: 10, color: change >= 0 ? "#22c55e" : "#ef4444" }}>{change >= 0 ? "▲" : "▼"}{Math.abs(change).toFixed(2)}%</span>
-                </div>
-              );
-            })}
+          <div style={{ background: "#0a0f1a", border: "1px solid #1a1a3a", borderRadius: 8, padding: "8px 0", marginBottom: 12, overflow: "hidden", position: "relative" }}>
+            <style>{`
+              @keyframes tickerScroll {
+                0% { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+              }
+              .ticker-track {
+                display: flex;
+                gap: 0;
+                animation: tickerScroll ${Math.max(uniqueTickers.length * 3, 12)}s linear infinite;
+                width: max-content;
+              }
+            `}</style>
+            <div className="ticker-track">
+              {[...uniqueTickers, ...uniqueTickers].map((ticker, i) => {
+                const p = prices[ticker];
+                const change = p?.prevPrice ? ((p.price - p.prevPrice) / p.prevPrice * 100) : 0;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 20px", borderRight: "1px solid #1a1a3a", flexShrink: 0 }}>
+                    <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#a78bfa" }}>{ticker}</span>
+                    <span style={{ fontSize: 11, color: "#e0e8ff" }}>{fmt$(p?.price)}</span>
+                    <span style={{ fontSize: 10, color: change >= 0 ? "#22c55e" : "#ef4444" }}>{change >= 0 ? "▲" : "▼"}{Math.abs(change).toFixed(2)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Leaderboard ranking */}
+        {started && (
+          <div style={{ background: "#0f1a2e", border: "1px solid #1e3560", borderRadius: 10, padding: "12px 16px", marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: "#5544aa", letterSpacing: 1.5, marginBottom: 10 }}>STANDINGS</div>
+            <div style={{ display: "flex", gap: 0 }}>
+              {allPlayers.map((p, i) => {
+                const medals = ["🥇","🥈","🥉","4️⃣"];
+                const pnl = p.value - ARCADE_BUDGET;
+                const pct = (pnl / ARCADE_BUDGET) * 100;
+                return (
+                  <div key={p.name} style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderLeft: i > 0 ? "1px solid #1a1a3a" : "none", background: p.isPlayer ? "#1a0a2e" : "transparent", borderRadius: i === 0 ? "6px 0 0 6px" : i === allPlayers.length - 1 ? "0 6px 6px 0" : 0 }}>
+                    <span style={{ fontSize: 16 }}>{medals[i]}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: p.isPlayer ? 700 : 400, color: p.isPlayer ? "#a78bfa" : "#e0e8ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: pct >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmtPct(pct)}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Event news banner — inline under leaderboard */}
+        {events.length > 0 && started && (
+          <div style={{ background: "#1a0a2e", border: "1px solid #7c3aed55", borderRadius: 8, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "#c4b5fd", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span>{events[events.length - 1].text}</span>
+            <button onClick={() => setEvents(prev => prev.slice(0, -1))} style={{ background: "none", border: "none", color: "#5544aa", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
           </div>
         )}
 
@@ -876,7 +897,7 @@ function ArcadeSession({ portfolio: initialPortfolio, prices: initialPrices, set
         />
       )}
 
-      <ArcadeEventToast events={events} onDismiss={() => setEvents(prev => prev.slice(0, -1))}/>
+
     </div>
   );
 }
