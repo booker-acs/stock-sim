@@ -21,6 +21,116 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const BUDGET = 10000;
 const ALERT_THRESHOLD = 5; // % move triggers badge
 
+// ── Arcade Mode Constants ────────────────────────────────────────────────────
+const ARCADE_BUDGET = 10000;
+const ARCADE_SESSION_MINUTES = 10;
+const ARCADE_TICK_MS = 8000; // price update every 8 seconds
+
+// Stock personality map — controls simulation behavior
+// unknown tickers get "volatile" by default with a warning
+const STOCK_PERSONALITIES = {
+  // Stable blue chips
+  AAPL:"stable", MSFT:"stable", GOOGL:"stable", AMZN:"stable", JNJ:"stable",
+  WMT:"stable", BRK:"stable", V:"stable", MA:"stable", JPM:"stable",
+  PG:"stable", KO:"stable", PEP:"stable", MCD:"stable", UNH:"stable",
+  // Trending growth
+  NVDA:"trending", META:"trending", TSLA:"trending", AVGO:"trending",
+  LLY:"trending", NFLX:"trending", ORCL:"trending", CRM:"trending",
+  // Volatile tech/speculative
+  AMD:"volatile", PLTR:"volatile", SHOP:"volatile", SNOW:"volatile",
+  RBLX:"volatile", SPOT:"volatile", UBER:"volatile", COIN:"volatile",
+  MSTR:"volatile", ARKK:"volatile",
+  // Crash-prone penny/meme
+  AMC:"crash", GME:"crash", BBBY:"crash", MWC:"crash", RANI:"crash",
+  MULN:"crash", SPCE:"crash",
+  // Rocket (mostly flat, rare huge spikes)
+  GOVX:"rocket", NVAX:"rocket", SAVA:"rocket", MARA:"rocket", RIOT:"rocket",
+};
+
+// AI Challenger portfolios
+const AI_CHALLENGERS = [
+  {
+    id: "safe-sally", name: "Safe Sally", emoji: "🏦",
+    description: "Conservative investor. Blue chips only.",
+    picks: [
+      { ticker: "JNJ", spent: 2500 },
+      { ticker: "WMT", spent: 2500 },
+      { ticker: "V", spent: 2500 },
+      { ticker: "KO", spent: 2500 },
+    ]
+  },
+  {
+    id: "yolo-chad", name: "YOLO Chad", emoji: "🚀",
+    description: "High risk, high reward. Memes and dreams.",
+    picks: [
+      { ticker: "AMC", spent: 2500 },
+      { ticker: "MSTR", spent: 2500 },
+      { ticker: "COIN", spent: 2500 },
+      { ticker: "RBLX", spent: 2500 },
+    ]
+  },
+  {
+    id: "balanced-beth", name: "Balanced Beth", emoji: "⚖️",
+    description: "Diversified across sectors. Plays it smart.",
+    picks: [
+      { ticker: "NVDA", spent: 2500 },
+      { ticker: "JPM", spent: 2500 },
+      { ticker: "LLY", spent: 2500 },
+      { ticker: "NEE", spent: 2500 },
+    ]
+  },
+];
+
+// Event flavor text templates — {company} and {pct} filled in at runtime
+const EVENT_TEMPLATES = {
+  spike: [
+    "📰 BREAKING: {company} surges {pct}% after CEO tweets a single rocket emoji.",
+    "📰 BREAKING: {company} up {pct}% after analyst upgrades to 'send it'.",
+    "📰 BREAKING: {company} jumps {pct}% — sources say the office got a ping pong table.",
+    "📰 BREAKING: {company} soars {pct}% after being mentioned in a TikTok.",
+    "📰 BREAKING: {company} up {pct}% after rumor that Elon Musk looked at it.",
+    "📰 BREAKING: {company} climbs {pct}% following partnership with a company nobody has heard of.",
+    "📰 BREAKING: {company} up {pct}% — Jim Cramer said to sell, so everyone bought.",
+  ],
+  crash: [
+    "📰 BREAKING: {company} crashes {pct}% after CEO caught using Comic Sans in a presentation.",
+    "📰 BREAKING: {company} down {pct}% after analyst discovers headquarters is a WeWork.",
+    "📰 BREAKING: {company} drops {pct}% after earnings call held entirely in Roblox.",
+    "📰 BREAKING: {company} falls {pct}% — intern accidentally sent 'reply all' to 50,000 people.",
+    "📰 BREAKING: {company} slides {pct}% after CFO listed 'vibes' as an asset on the balance sheet.",
+    "📰 BREAKING: {company} down {pct}% after Jim Cramer said to buy.",
+    "📰 BREAKING: {company} crashes {pct}% following news that the CEO prefers Bing.",
+  ],
+};
+
+// Price simulation engine — returns new price based on personality
+function simulatePrice(currentPrice, personality, tick) {
+  const rand = () => (Math.random() - 0.5) * 2; // -1 to 1
+  const p = personality || "volatile";
+  let changePct = 0;
+
+  if (p === "stable") {
+    changePct = rand() * 0.008; // ±0.8% max
+  } else if (p === "volatile") {
+    changePct = rand() * 0.03; // ±3% max
+  } else if (p === "trending") {
+    changePct = rand() * 0.015 + 0.002; // slight upward drift
+  } else if (p === "crash") {
+    // mostly flat, occasional big drop
+    const roll = Math.random();
+    if (roll > 0.97) changePct = -(Math.random() * 0.15 + 0.05); // 5-20% crash
+    else changePct = rand() * 0.02;
+  } else if (p === "rocket") {
+    // mostly flat, occasional big spike
+    const roll = Math.random();
+    if (roll > 0.97) changePct = Math.random() * 0.20 + 0.05; // 5-25% spike
+    else changePct = rand() * 0.01;
+  }
+
+  const newPrice = currentPrice * (1 + changePct);
+  return { newPrice: Math.max(0.01, newPrice), changePct };
+}
+
 // Returns true if market is currently open (9:30am-4:00pm ET, weekdays)
 function isMarketOpen() {
   const now = new Date();
@@ -327,6 +437,438 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
   );
 }
 
+
+
+
+// ── Arcade Event Toast ────────────────────────────────────────────────────────
+function ArcadeEventToast({ events }) {
+  if (!events.length) return null;
+  const latest = events[events.length - 1];
+  return (
+    <div style={{ position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", background: "#0f2347", border: "1px solid #7c3aed", borderRadius: 10, padding: "12px 20px", color: "#e0e8ff", fontSize: 13, zIndex: 1000, maxWidth: 480, textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+      {latest.text}
+    </div>
+  );
+}
+
+// ── Arcade Session ─────────────────────────────────────────────────────────────
+function ArcadeSession({ portfolio, prices, setPrices, challengers, setChallengers, events, setEvents, timeLeft, setTimeLeft, tickRef, timerRef, onStop }) {
+  const [started, setStarted] = useState(false);
+  const [ended, setEnded] = useState(false);
+
+  const allTickers = [
+    ...(portfolio?.picks || []).map(p => p.ticker),
+    ...challengers.flatMap(c => c.picks.map(p => p.ticker))
+  ];
+  const uniqueTickers = [...new Set(allTickers)];
+
+  // Format time
+  const mins = Math.floor(timeLeft / 60);
+  const secs = timeLeft % 60;
+  const timeStr = `${mins}:${secs.toString().padStart(2, "0")}`;
+  const timeColor = timeLeft < 60 ? "#ef4444" : timeLeft < 180 ? "#f59e0b" : "#22c55e";
+
+  // Start the simulation
+  const startSim = () => {
+    setStarted(true);
+
+    // Price tick
+    tickRef.current = setInterval(() => {
+      setPrices(prev => {
+        const next = { ...prev };
+        const newEvents = [];
+        uniqueTickers.forEach(ticker => {
+          const current = prev[ticker];
+          if (!current) return;
+          const personality = STOCK_PERSONALITIES[ticker] || "volatile";
+          const { newPrice, changePct } = simulatePrice(current.price, personality);
+          next[ticker] = { ...current, prevPrice: current.price, price: newPrice };
+          // Fire event if large move
+          if (Math.abs(changePct) > 0.08) {
+            const type = changePct > 0 ? "spike" : "crash";
+            const templates = EVENT_TEMPLATES[type];
+            const template = templates[Math.floor(Math.random() * templates.length)];
+            const text = template
+              .replace("{company}", current.companyName || ticker)
+              .replace("{pct}", (Math.abs(changePct) * 100).toFixed(1) + "%");
+            newEvents.push({ id: uid(), text, ticker, type });
+          }
+        });
+        if (newEvents.length) {
+          setEvents(prev => [...prev.slice(-4), ...newEvents].slice(-5));
+        }
+        return next;
+      });
+    }, ARCADE_TICK_MS);
+
+    // Session countdown
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(tickRef.current);
+          clearInterval(timerRef.current);
+          setEnded(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  // Calculate portfolio value
+  const calcValue = (picks, cash) => {
+    const stockVal = picks.reduce((s, p) => {
+      const price = prices[p.ticker]?.price;
+      if (!price) return s + p.spent;
+      return s + price * p.shares;
+    }, 0);
+    return stockVal + (cash || 0);
+  };
+
+  const playerValue = portfolio ? calcValue(portfolio.picks, portfolio.cashBalance) : ARCADE_BUDGET;
+  const playerPnL = playerValue - ARCADE_BUDGET;
+  const playerPct = (playerPnL / ARCADE_BUDGET) * 100;
+
+  const challengerValues = challengers.map(c => ({
+    ...c,
+    value: calcValue(c.picks, 0),
+    pnl: calcValue(c.picks, 0) - ARCADE_BUDGET,
+    pct: ((calcValue(c.picks, 0) - ARCADE_BUDGET) / ARCADE_BUDGET) * 100,
+  }));
+
+  // Rankings
+  const allPlayers = [
+    { name: "You", value: playerValue, pct: playerPct, isPlayer: true },
+    ...challengerValues.map(c => ({ name: `${c.emoji} ${c.name}`, value: c.value, pct: c.pct, isPlayer: false }))
+  ].sort((a, b) => b.value - a.value);
+  const playerRank = allPlayers.findIndex(p => p.isPlayer) + 1;
+
+  const iStyle = { background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "16px 18px" };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a0a1a 0%, #0f0f2a 50%, #0a0a1a 100%)", fontFamily: "'DM Sans', sans-serif", color: "#e0e8ff" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+
+      {/* Arcade header */}
+      <div style={{ background: "linear-gradient(90deg, #1a0a2e, #2d1b69)", borderBottom: "2px solid #7c3aed", padding: "0 24px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 24 }}>🕹️</span>
+            <div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 20, letterSpacing: 3, color: "#a78bfa" }}>ARCADE MODE</div>
+              <div style={{ fontSize: 10, color: "#5566aa", letterSpacing: 1 }}>SOLO SESSION — NOT LINKED TO CLASS</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {started && !ended && (
+              <div style={{ fontFamily: "monospace", fontSize: 24, fontWeight: 700, color: timeColor }}>{timeStr}</div>
+            )}
+            {!started && !ended && (
+              <button onClick={startSim} style={{ background: "#7c3aed", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", padding: "8px 20px", fontSize: 13, fontWeight: 700 }}>
+                ▶ Start Session
+              </button>
+            )}
+            <button onClick={onStop} style={{ background: "none", border: "1px solid #3a1a5a", borderRadius: 8, color: "#7c3aed", cursor: "pointer", padding: "8px 14px", fontSize: 12 }}>
+              ✕ Exit
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 20px" }}>
+        {/* Session ended banner */}
+        {ended && (
+          <div style={{ background: "#1a0a2e", border: "2px solid #7c3aed", borderRadius: 12, padding: "20px", marginBottom: 24, textAlign: "center" }}>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, letterSpacing: 3, color: "#a78bfa", marginBottom: 8 }}>SESSION OVER</div>
+            <div style={{ fontSize: 16, color: "#e0e8ff", marginBottom: 4 }}>
+              You finished <span style={{ color: "#FFD966", fontWeight: 700 }}>#{playerRank}</span> out of {allPlayers.length}
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: playerPnL >= 0 ? "#22c55e" : "#ef4444", marginBottom: 16 }}>
+              {fmtPct(playerPct)} · {playerPnL >= 0 ? "+" : ""}{fmt$(playerPnL)}
+            </div>
+            <button onClick={onStop} style={{ background: "#7c3aed", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", padding: "10px 28px", fontSize: 13, fontWeight: 700 }}>
+              Play Again
+            </button>
+          </div>
+        )}
+
+        {/* Rankings */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+          {/* Player portfolio */}
+          <div style={{ ...iStyle, borderColor: "#7c3aed" }}>
+            <div style={{ fontSize: 10, color: "#7c3aed", letterSpacing: 1.5, marginBottom: 8 }}>YOUR PORTFOLIO</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: "#FFD966" }}>{fmt$(playerValue)}</div>
+            <div style={{ fontSize: 14, color: playerPnL >= 0 ? "#22c55e" : "#ef4444", marginTop: 2 }}>
+              {playerPnL >= 0 ? "+" : ""}{fmt$(playerPnL)} · {fmtPct(playerPct)}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 11, color: "#5566aa" }}>Rank #{playerRank} of {allPlayers.length}</div>
+          </div>
+
+          {/* Leaderboard */}
+          <div style={iStyle}>
+            <div style={{ fontSize: 10, color: "#6677aa", letterSpacing: 1.5, marginBottom: 8 }}>STANDINGS</div>
+            {allPlayers.map((p, i) => (
+              <div key={p.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < allPlayers.length - 1 ? "1px solid #1a2d52" : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: ["#FFD966","#c0cfea","#cd7f32","#445577"][i] || "#445577" }}>#{i+1}</span>
+                  <span style={{ fontSize: 13, fontWeight: p.isPlayer ? 700 : 400, color: p.isPlayer ? "#a78bfa" : "#c0cfea" }}>{p.name}</span>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 600, color: p.pct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(p.pct)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Player holdings */}
+        <div style={iStyle}>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#a78bfa", letterSpacing: 2, marginBottom: 12 }}>Your Holdings</div>
+          <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 70px 80px 80px 80px", gap: 8, marginBottom: 6 }}>
+            {["Ticker","Company","Shares","Buy","Now","P&L"].map(h => (
+              <div key={h} style={{ fontSize: 10, color: "#445577", textTransform: "uppercase" }}>{h}</div>
+            ))}
+          </div>
+          {(portfolio?.picks || []).map(p => {
+            const priceData = prices[p.ticker];
+            const now = priceData?.price;
+            const pnl = now != null ? (now - p.purchasePrice) * p.shares : null;
+            const tick = priceData && priceData.price !== priceData.prevPrice
+              ? (priceData.price > priceData.prevPrice ? "▲" : "▼") : "";
+            const tickColor = priceData?.price > priceData?.prevPrice ? "#22c55e" : "#ef4444";
+            return (
+              <div key={p.ticker} style={{ display: "grid", gridTemplateColumns: "80px 1fr 70px 80px 80px 80px", gap: 8, padding: "8px 0", borderTop: "1px solid #1a2d52", alignItems: "center" }}>
+                <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966" }}>{p.ticker}</div>
+                <div style={{ fontSize: 12, color: "#8899bb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{priceData?.companyName || p.ticker}</div>
+                <div style={{ fontSize: 12, color: "#c0cfea" }}>{p.shares.toFixed(3)}</div>
+                <div style={{ fontSize: 12, color: "#c0cfea" }}>{fmt$(p.purchasePrice)}</div>
+                <div style={{ fontSize: 12, color: tickColor, fontWeight: tick ? 600 : 400 }}>{tick} {fmt$(now)}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: pnl == null ? "#445577" : pnl >= 0 ? "#22c55e" : "#ef4444" }}>
+                  {pnl == null ? "—" : (pnl >= 0 ? "+" : "") + fmt$(pnl)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Challenger details */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginTop: 16 }}>
+          {challengerValues.map(c => (
+            <div key={c.id} style={{ ...iStyle, borderColor: "#1e3560" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 20 }}>{c.emoji}</span>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e0e8ff" }}>{c.name}</div>
+                  <div style={{ fontSize: 10, color: "#445577" }}>{c.description}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: c.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(c.pct)}</div>
+              <div style={{ fontSize: 11, color: "#6677aa" }}>{c.pnl >= 0 ? "+" : ""}{fmt$(c.pnl)}</div>
+              <div style={{ marginTop: 8 }}>
+                {c.picks.map(p => {
+                  const now = prices[p.ticker]?.price;
+                  const pnl = now != null ? (now - p.purchasePrice) * p.shares : null;
+                  return (
+                    <div key={p.ticker} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", borderTop: "1px solid #0d1f3c" }}>
+                      <span style={{ fontFamily: "monospace", color: "#FFD966" }}>{p.ticker}</span>
+                      <span style={{ color: pnl == null ? "#445577" : pnl >= 0 ? "#22c55e" : "#ef4444" }}>
+                        {pnl == null ? "—" : (pnl >= 0 ? "+" : "") + fmt$(pnl)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Event toasts */}
+      <ArcadeEventToast events={events}/>
+    </div>
+  );
+}
+
+// ── Mode Select Modal ─────────────────────────────────────────────────────────
+function ModeSelectModal({ onSelectLive, onSelectArcade }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
+      <div style={{ width: "100%", maxWidth: 560, textAlign: "center" }}>
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 36, letterSpacing: 4, color: "#FFD966", marginBottom: 8 }}>STOCK MARKET SIM</div>
+        <div style={{ fontSize: 14, color: "#5566aa", marginBottom: 40 }}>Choose your mode for this session</div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          {/* Live Mode */}
+          <div onClick={onSelectLive}
+            style={{ background: "#0f2347", border: "2px solid #1C4587", borderRadius: 16, padding: "28px 20px", cursor: "pointer", transition: "all 0.2s" }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "#FFD966"; e.currentTarget.style.transform = "translateY(-4px)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#1C4587"; e.currentTarget.style.transform = "translateY(0)"; }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>📈</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: 3, color: "#FFD966", marginBottom: 8 }}>LIVE MARKET</div>
+            <div style={{ fontSize: 13, color: "#8899bb", lineHeight: 1.6 }}>
+              Connect to your class roster. Real prices, real stakes. Linked to the shared dashboard.
+            </div>
+            <div style={{ marginTop: 16, background: "#1C4587", borderRadius: 8, padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#e0e8ff" }}>
+              Enter Live Mode →
+            </div>
+          </div>
+
+          {/* Arcade Mode */}
+          <div onClick={onSelectArcade}
+            style={{ background: "#0f2347", border: "2px solid #7c3aed", borderRadius: 16, padding: "28px 20px", cursor: "pointer", transition: "all 0.2s" }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "#FFD966"; e.currentTarget.style.transform = "translateY(-4px)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#7c3aed"; e.currentTarget.style.transform = "translateY(0)"; }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🕹️</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: 3, color: "#a78bfa", marginBottom: 8 }}>ARCADE MODE</div>
+            <div style={{ fontSize: 13, color: "#8899bb", lineHeight: 1.6 }}>
+              Solo session. Market always open. Compete against AI challengers. Fresh start every time.
+            </div>
+            <div style={{ marginTop: 16, background: "#7c3aed", borderRadius: 8, padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#fff" }}>
+              Play Arcade →
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 24, fontSize: 11, color: "#334466" }}>
+          Arcade mode is local only — progress is not saved to the class dashboard
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Arcade Stock Picker ────────────────────────────────────────────────────────
+function ArcadeStockPicker({ onStart, onCancel }) {
+  const [rows, setRows] = useState([
+    { id: uid(), ticker: "", amount: "" },
+    { id: uid(), ticker: "", amount: "" },
+    { id: uid(), ticker: "", amount: "" },
+  ]);
+  const [loading, setLoading] = useState(false);
+  const [warnings, setWarnings] = useState({});
+  const today = new Date().toISOString().slice(0, 10);
+
+  const totalSpent = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+  const cashLeft = ARCADE_BUDGET - totalSpent;
+  const overBudget = totalSpent > ARCADE_BUDGET;
+  const validRows = rows.filter(r => r.ticker.trim() && parseFloat(r.amount) > 0);
+
+  const addRow = () => { if (rows.length < 8) setRows(p => [...p, { id: uid(), ticker: "", amount: "" }]); };
+  const removeRow = (id) => setRows(p => p.filter(r => r.id !== id));
+  const updateRow = (id, field, val) => {
+    setRows(p => p.map(r => r.id === id ? { ...r, [field]: field === "ticker" ? val.toUpperCase() : val } : r));
+    if (field === "ticker") {
+      const t = val.toUpperCase().trim();
+      const personality = STOCK_PERSONALITIES[t];
+      setWarnings(prev => ({
+        ...prev,
+        [id]: t.length > 0 && !personality ? `${t} is not in our personality map — will simulate as volatile` : null
+      }));
+    }
+  };
+
+  const handleStart = async () => {
+    if (!validRows.length || overBudget) return;
+    setLoading(true);
+    // Fetch starting prices for all picks + AI challenger tickers
+    const allTickers = [...new Set([
+      ...validRows.map(r => r.ticker.trim().toUpperCase()),
+      ...AI_CHALLENGERS.flatMap(c => c.picks.map(p => p.ticker))
+    ])];
+    const priceResults = await Promise.all(allTickers.map(async t => {
+      const res = await fetch('/api/proxy', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: t })
+      });
+      const data = await res.json();
+      return { ticker: t, price: data.previousClose || data.currentPrice || 10, companyName: data.companyName || t };
+    }));
+    const priceMap = {};
+    priceResults.forEach(r => { priceMap[r.ticker] = { price: r.price, companyName: r.companyName }; });
+    setLoading(false);
+    onStart(validRows.map(r => ({
+      ticker: r.ticker.trim().toUpperCase(),
+      spent: parseFloat(r.amount),
+      personality: STOCK_PERSONALITIES[r.ticker.trim().toUpperCase()] || "volatile",
+    })), priceMap);
+  };
+
+  const iStyle = { background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "8px 10px", fontSize: 13, outline: "none", boxSizing: "border-box", width: "100%" };
+  const pctUsed = Math.min((totalSpent / ARCADE_BUDGET) * 100, 100);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }}>
+      <div style={{ background: "#0f2347", border: "2px solid #7c3aed", borderRadius: 16, padding: 28, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.7)" }}>
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: 3, color: "#a78bfa", marginBottom: 4 }}>🕹️ ARCADE MODE</div>
+        <div style={{ fontSize: 13, color: "#5566aa", marginBottom: 20 }}>Pick your stocks and allocate your ${ARCADE_BUDGET.toLocaleString()} budget. Market opens when you're ready.</div>
+
+        {/* Budget bar */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 5 }}>
+            <span style={{ color: "#8899bb" }}>BUDGET</span>
+            <span style={{ fontWeight: 700, color: overBudget ? "#ef4444" : cashLeft < 500 ? "#f59e0b" : "#22c55e" }}>
+              {fmt$(cashLeft)} remaining
+            </span>
+          </div>
+          <div style={{ height: 6, background: "#0d1f3c", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${pctUsed}%`, background: overBudget ? "#ef4444" : pctUsed > 90 ? "#f59e0b" : "#7c3aed", borderRadius: 4, transition: "width 0.3s ease" }}/>
+          </div>
+        </div>
+
+        {/* Column headers */}
+        <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 28px", gap: 8, marginBottom: 6 }}>
+          {["TICKER", "$ TO INVEST", ""].map(h => <div key={h} style={{ fontSize: 10, color: "#445577", letterSpacing: 1 }}>{h}</div>)}
+        </div>
+
+        {rows.map(r => (
+          <div key={r.id} style={{ marginBottom: warnings[r.id] ? 4 : 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 28px", gap: 8, alignItems: "center" }}>
+              <input value={r.ticker} onChange={e => updateRow(r.id, "ticker", e.target.value)} placeholder="AAPL"
+                style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
+              <input type="number" min="0" value={r.amount} onChange={e => updateRow(r.id, "amount", e.target.value)} placeholder="Amount ($)" style={iStyle}/>
+              <button onClick={() => removeRow(r.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 13, height: 34, width: 28 }}>✕</button>
+            </div>
+            {warnings[r.id] && (
+              <div style={{ fontSize: 10, color: "#f59e0b", padding: "3px 4px" }}>⚠️ {warnings[r.id]}</div>
+            )}
+          </div>
+        ))}
+
+        {rows.length < 8 && (
+          <button onClick={addRow} style={{ background: "none", border: "1px dashed #2a3f6b", borderRadius: 6, color: "#8899bb", cursor: "pointer", padding: "7px 0", width: "100%", fontSize: 12, marginBottom: 8 }}>
+            + Add Stock
+          </button>
+        )}
+
+        {overBudget && (
+          <div style={{ background: "#3a0f0f", border: "1px solid #ef4444", borderRadius: 6, padding: "8px 12px", color: "#fca5a5", fontSize: 12, marginBottom: 12 }}>
+            ⚠️ Over budget by {fmt$(totalSpent - ARCADE_BUDGET)}
+          </div>
+        )}
+
+        {/* AI Challengers preview */}
+        <div style={{ borderTop: "1px solid #1e3560", marginTop: 12, paddingTop: 12, marginBottom: 16 }}>
+          <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>YOUR OPPONENTS</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {AI_CHALLENGERS.map(c => (
+              <div key={c.id} style={{ flex: 1, background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                <div style={{ fontSize: 18 }}>{c.emoji}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#e0e8ff" }}>{c.name}</div>
+                <div style={{ fontSize: 9, color: "#445577", marginTop: 2 }}>{c.description}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onCancel} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "11px 20px", fontSize: 13 }}>← Back</button>
+          <button onClick={handleStart} disabled={!validRows.length || overBudget || loading}
+            style={{ flex: 1, background: (!validRows.length || overBudget || loading) ? "#2a2040" : "#7c3aed", border: "none", borderRadius: 8, color: (!validRows.length || overBudget || loading) ? "#5566aa" : "#fff", cursor: (!validRows.length || overBudget || loading) ? "default" : "pointer", padding: "11px 0", fontSize: 13, fontWeight: 700 }}>
+            {loading ? "⟳ Fetching starting prices…" : "🚀 Start Session"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Bulk Add Modal ────────────────────────────────────────────────────────────
 function BulkAddModal({ classes, onAdd, onClose }) {
@@ -1655,7 +2197,21 @@ function StudentCard({ student, prices, onClick, onManage, isUnlocked }) {
 }
 
 export default function App() {
- const [students, setStudents] = useState([]);
+  // ── App mode ──────────────────────────────────────────────────────────────
+  const [appMode, setAppMode] = useState("select"); // "select" | "live" | "arcade-pick" | "arcade"
+
+  // ── Arcade state ───────────────────────────────────────────────────────────
+  const [arcadePortfolio, setArcadePortfolio] = useState(null);
+  const [arcadePrices, setArcadePrices] = useState({});
+  const [arcadeChallengers, setArcadeChallengers] = useState([]);
+  const [arcadeEvents, setArcadeEvents] = useState([]);
+  const [arcadeTimeLeft, setArcadeTimeLeft] = useState(ARCADE_SESSION_MINUTES * 60);
+  const arcadeTickRef = useRef(null);
+  const arcadeTimerRef = useRef(null);
+
+  // ── Live state ─────────────────────────────────────────────────────────────
+  const [students, setStudents] = useState([]);
+  const [prices, setPrices] = useState({});
 
 // Sync students from Firebase on mount
 useEffect(() => {
@@ -1670,7 +2226,6 @@ useEffect(() => {
   });
   return () => unsub();
 }, []);
-  const [prices, setPrices] = useState({});
   const [detail, setDetail] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [manageId, setManageId] = useState(null);
@@ -1797,12 +2352,51 @@ useEffect(() => {
   const classes = [...new Set(students.map(s => s.className))];
 
   const handleAddStudent = (student) => {
-  set(ref(db, `students/${student.id}`), student);
-};
+    set(ref(db, `students/${student.id}`), student);
+  };
+
+  // ── Arcade handlers ────────────────────────────────────────────────────────
+  const startArcade = (picks, priceMap) => {
+    const initPrices = {};
+    Object.entries(priceMap).forEach(([ticker, data]) => {
+      initPrices[ticker] = { price: data.price, prevPrice: data.price, companyName: data.companyName };
+    });
+    setArcadePrices(initPrices);
+    setArcadePortfolio({
+      picks: picks.map(p => ({
+        ...p,
+        purchasePrice: priceMap[p.ticker]?.price || 10,
+        shares: p.spent / (priceMap[p.ticker]?.price || 10),
+      })),
+      cashBalance: ARCADE_BUDGET - picks.reduce((s, p) => s + p.spent, 0),
+    });
+    setArcadeChallengers(AI_CHALLENGERS.map(c => ({
+      ...c,
+      picks: c.picks.map(p => ({
+        ...p,
+        purchasePrice: priceMap[p.ticker]?.price || 10,
+        shares: p.spent / (priceMap[p.ticker]?.price || 10),
+        personality: STOCK_PERSONALITIES[p.ticker] || "stable",
+      }))
+    })));
+    setArcadeTimeLeft(ARCADE_SESSION_MINUTES * 60);
+    setArcadeEvents([]);
+    setAppMode("arcade");
+  };
+
+  const stopArcade = () => {
+    clearInterval(arcadeTickRef.current);
+    clearInterval(arcadeTimerRef.current);
+    setAppMode("select");
+    setArcadePortfolio(null);
+    setArcadePrices({});
+    setArcadeChallengers([]);
+    setArcadeEvents([]);
+  };
 
   const handleUpdateNotes = (studentId, notes) => {
-  update(ref(db, `students/${studentId}`), { notes });
-};
+    update(ref(db, `students/${studentId}`), { notes });
+  };
 
   const handleUpdatePin = (studentId, pinHash) => {
     update(ref(db, `students/${studentId}`), { pinHash });
@@ -1836,29 +2430,61 @@ useEffect(() => {
 
   const handleDelete = (id) => { setConfirmDeleteId(id); };
   const confirmDelete = () => {
-  remove(ref(db, `students/${confirmDeleteId}`));
-  setDetail(null);
-  setConfirmDeleteId(null);
-};
+    remove(ref(db, `students/${confirmDeleteId}`));
+    setDetail(null);
+    setConfirmDeleteId(null);
+  };
 
   const handleSave = () => {
     const blob = new Blob([JSON.stringify({ students }, null, 2)], { type: "application/json" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "stock-roster.json"; a.click();
   };
   const handleLoad = (e) => {
-  const file = e.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    try {
-      const { students: loaded } = JSON.parse(ev.target.result);
-      loaded.forEach(s => set(ref(db, `students/${s.id}`), s));
-      const tickers = [...new Set(loaded.flatMap(s => s.holdings.map(h => h.ticker)))];
-      if (tickers.length) refreshPrices(tickers);
-    } catch { setErrorMsg("Failed to load file — invalid format."); }
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const { students: loaded } = JSON.parse(ev.target.result);
+        loaded.forEach(s => set(ref(db, `students/${s.id}`), s));
+        const tickers = [...new Set(loaded.flatMap(s => s.holdings.map(h => h.ticker)))];
+        if (tickers.length) refreshPrices(tickers);
+      } catch { setErrorMsg("Failed to load file — invalid format."); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
-  reader.readAsText(file);
-  e.target.value = "";
-};
+
+  // ── Mode gates ────────────────────────────────────────────────────────────
+  if (appMode === "select") return (
+    <ModeSelectModal
+      onSelectLive={() => setAppMode("live")}
+      onSelectArcade={() => setAppMode("arcade-pick")}
+    />
+  );
+
+  if (appMode === "arcade-pick") return (
+    <ArcadeStockPicker
+      onStart={startArcade}
+      onCancel={() => setAppMode("select")}
+    />
+  );
+
+  if (appMode === "arcade") return (
+    <ArcadeSession
+      portfolio={arcadePortfolio}
+      prices={arcadePrices}
+      setPrices={setArcadePrices}
+      challengers={arcadeChallengers}
+      setChallengers={setArcadeChallengers}
+      events={arcadeEvents}
+      setEvents={setArcadeEvents}
+      timeLeft={arcadeTimeLeft}
+      setTimeLeft={setArcadeTimeLeft}
+      tickRef={arcadeTickRef}
+      timerRef={arcadeTimerRef}
+      onStop={stopArcade}
+    />
+  );
 
   const detailStudent = detail ? students.find(s => s.id === detail) : null;
   const manageStudent = manageId ? students.find(s => s.id === manageId) : null;
