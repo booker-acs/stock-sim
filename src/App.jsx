@@ -441,67 +441,273 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
 
 
 // ── Arcade Event Toast ────────────────────────────────────────────────────────
-function ArcadeEventToast({ events }) {
+// ── Arcade Event Toast ────────────────────────────────────────────────────────
+function ArcadeEventToast({ events, onDismiss }) {
   if (!events.length) return null;
   const latest = events[events.length - 1];
   return (
-    <div style={{ position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", background: "#0f2347", border: "1px solid #7c3aed", borderRadius: 10, padding: "12px 20px", color: "#e0e8ff", fontSize: 13, zIndex: 1000, maxWidth: 480, textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+    <div onClick={onDismiss} style={{ position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)", background: "#1a0a2e", border: "1px solid #7c3aed", borderRadius: 10, padding: "12px 20px", color: "#e0e8ff", fontSize: 13, zIndex: 1000, maxWidth: 520, textAlign: "center", boxShadow: "0 8px 32px rgba(124,58,237,0.3)", cursor: "pointer" }}>
       {latest.text}
+      <span style={{ marginLeft: 8, fontSize: 10, color: "#5544aa" }}>tap to dismiss</span>
+    </div>
+  );
+}
+
+// ── Arcade Student Card ───────────────────────────────────────────────────────
+function ArcadeStudentCard({ name, emoji, description, picks, prices, budget, cashBalance, isPlayer, onClick }) {
+  const stockValue = picks.reduce((s, p) => {
+    const price = prices[p.ticker]?.price;
+    if (!price || !p.purchasePrice || !p.spent) return s + p.spent;
+    return s + price * (p.spent / p.purchasePrice);
+  }, 0);
+  const portfolioValue = stockValue + (cashBalance || 0);
+  const pnl = portfolioValue - budget;
+  const pct = (pnl / budget) * 100;
+  const isPos = pct >= 0;
+  const todayPnL = picks.reduce((s, p) => {
+    const priceData = prices[p.ticker];
+    if (!priceData?.price || !p.purchasePrice || !p.spent) return s;
+    return s + (priceData.price - p.purchasePrice) * (p.spent / p.purchasePrice);
+  }, 0);
+  const spark = [budget, budget * (1 + pct * 0.3 / 100), budget + todayPnL * 0.5, portfolioValue];
+
+  return (
+    <div onClick={onClick}
+      style={{ background: isPlayer ? "#1a0a2e" : "#0f2347", border: `1px solid ${isPlayer ? "#7c3aed" : "#1e3560"}`, borderRadius: 12, padding: "16px 18px", cursor: onClick ? "pointer" : "default", transition: "all 0.2s", position: "relative", overflow: "hidden" }}
+      onMouseEnter={e => { if (onClick) { e.currentTarget.style.borderColor = "#a78bfa"; e.currentTarget.style.transform = "translateY(-2px)"; }}}
+      onMouseLeave={e => { if (onClick) { e.currentTarget.style.borderColor = isPlayer ? "#7c3aed" : "#1e3560"; e.currentTarget.style.transform = "translateY(0)"; }}}>
+      <div style={{ position: "absolute", top: 0, right: 0, width: 3, height: "100%", background: isPos ? "#22c55e" : "#ef4444", borderRadius: "0 12px 12px 0" }}/>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {emoji && <span style={{ fontSize: 14 }}>{emoji}</span>}
+            <span style={{ fontWeight: 700, fontSize: 14, color: isPlayer ? "#a78bfa" : "#e0e8ff" }}>{name}</span>
+            {isPlayer && <span style={{ fontSize: 9, color: "#7c3aed", background: "#2a1a4e", border: "1px solid #7c3aed44", borderRadius: 3, padding: "1px 5px" }}>YOU</span>}
+          </div>
+          <div style={{ fontSize: 11, color: "#5566aa", marginTop: 1 }}>{picks.length} stock{picks.length !== 1 ? "s" : ""}{description ? ` · ${description}` : ""}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: isPos ? "#22c55e" : "#ef4444" }}>{fmtPct(pct)}</div>
+          <div style={{ fontSize: 11, color: "#5566aa" }}>{isPos ? "+" : ""}{fmt$(pnl)}</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        <div>
+          <div style={{ fontSize: 12, color: "#8899bb" }}>Value: <span style={{ color: "#FFD966", fontWeight: 600 }}>{fmt$(portfolioValue)}</span></div>
+          <div style={{ fontSize: 11, color: isPos ? "#22c55e" : "#ef4444", marginTop: 2 }}>Today: {isPos ? "+" : ""}{fmt$(pnl)}</div>
+        </div>
+        <Sparkline data={spark} color={isPos ? "#22c55e" : "#ef4444"} width={90} height={32}/>
+      </div>
+      {isPlayer && onClick && (
+        <div style={{ borderTop: "1px solid #2a1a4e", paddingTop: 8, marginTop: 8 }}>
+          <button onClick={e => { e.stopPropagation(); onClick(); }}
+            style={{ background: "#2a1a4e", border: "1px solid #7c3aed55", borderRadius: 6, color: "#a78bfa", cursor: "pointer", padding: "5px 14px", fontSize: 11, fontWeight: 600, width: "100%" }}>
+            ✏️ Manage Holdings
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Arcade Manage Holdings Modal ──────────────────────────────────────────────
+function ArcadeManageModal({ portfolio, prices, onSave, onClose }) {
+  const [rows, setRows] = useState(
+    portfolio.picks.map(p => ({ ...p, spentStr: String(p.spent), locked: true }))
+  );
+  const [newRows, setNewRows] = useState([]);
+
+  const lockedSpent = rows.filter(r => r.locked).reduce((s, r) => s + (r.spent || 0), 0);
+  const newSpent = newRows.reduce((s, r) => s + (parseFloat(r.spentStr) || 0), 0);
+  const availableCash = portfolio.cashBalance + newRows.reduce((s,r) => s, 0) - newSpent;
+  const overBudget = availableCash < 0;
+
+  const addNewRow = () => { if (newRows.length < 5) setNewRows(p => [...p, { id: uid(), ticker: "", spentStr: "", personality: "volatile" }]); };
+  const removeNew = (id) => setNewRows(p => p.filter(r => r.id !== id));
+  const updateNew = (id, field, val) => setNewRows(p => p.map(r => r.id === id ? { ...r, [field]: field === "ticker" ? val.toUpperCase() : val } : r));
+
+  const sellLocked = (ticker) => {
+    const p = rows.find(r => r.ticker === ticker);
+    if (!p) return;
+    const price = prices[ticker]?.price || p.purchasePrice;
+    const currentValue = price * (p.spent / p.purchasePrice);
+    portfolio.cashBalance += currentValue;
+    setRows(prev => prev.filter(r => r.ticker !== ticker));
+  };
+
+  const handleSave = () => {
+    const validNew = newRows.filter(r => r.ticker.trim() && parseFloat(r.spentStr) > 0);
+    const newPicks = validNew.map(r => {
+      const ticker = r.ticker.trim().toUpperCase();
+      const spent = parseFloat(r.spentStr);
+      const price = prices[ticker]?.price || 10;
+      return {
+        ticker, spent,
+        purchasePrice: price,
+        shares: spent / price,
+        personality: STOCK_PERSONALITIES[ticker] || "volatile",
+      };
+    });
+    const soldTickers = portfolio.picks.map(p => p.ticker).filter(t => !rows.find(r => r.ticker === t));
+    const proceedsFromSells = soldTickers.reduce((s, ticker) => {
+      const orig = portfolio.picks.find(p => p.ticker === ticker);
+      const price = prices[ticker]?.price || orig.purchasePrice;
+      return s + price * (orig.spent / orig.purchasePrice);
+    }, 0);
+    const newCash = portfolio.cashBalance + proceedsFromSells - newSpent;
+    const updatedPicks = [...rows.filter(r => r.locked), ...newPicks];
+    onSave({ picks: updatedPicks, cashBalance: newCash });
+    onClose();
+  };
+
+  const iStyle = { background: "#0d1f3c", border: "1px solid #2a3f6b", borderRadius: 6, color: "#e0e8ff", padding: "8px 10px", fontSize: 13, outline: "none", boxSizing: "border-box", width: "100%" };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 16 }}>
+      <div style={{ background: "#0f1a2e", border: "2px solid #7c3aed", borderRadius: 12, padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(124,58,237,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 18, letterSpacing: 2, color: "#a78bfa" }}>⏸ MANAGE HOLDINGS — PRICES FROZEN</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#8899bb", cursor: "pointer", fontSize: 20 }}>✕</button>
+        </div>
+
+        {/* Available cash */}
+        <div style={{ background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 8, padding: "10px 14px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 12, color: "#6677aa" }}>AVAILABLE CASH</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: overBudget ? "#ef4444" : availableCash < 500 ? "#f59e0b" : "#22c55e" }}>{fmt$(availableCash)}</span>
+        </div>
+
+        {/* Locked holdings */}
+        {rows.filter(r => r.locked).length > 0 && (
+          <>
+            <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>CURRENT HOLDINGS</div>
+            {rows.filter(r => r.locked).map(h => {
+              const price = prices[h.ticker]?.price || h.purchasePrice;
+              const currentValue = price * (h.spent / h.purchasePrice);
+              const pnl = currentValue - h.spent;
+              return (
+                <div key={h.ticker} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, background: "#0a1a38", border: "1px solid #1e3560", borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966", width: 60 }}>{h.ticker}</div>
+                  <div style={{ flex: 1, fontSize: 12, color: "#8899bb" }}>
+                    {fmt$(h.spent)} → {fmt$(currentValue)}
+                    <span style={{ marginLeft: 6, color: pnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{pnl >= 0 ? "+" : ""}{fmt$(pnl)}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#22c55e", background: "#0d2a1a", border: "1px solid #22c55e33", borderRadius: 4, padding: "2px 6px" }}>🔒</div>
+                  <button onClick={() => sellLocked(h.ticker)}
+                    style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ef4444", cursor: "pointer", padding: "4px 10px", fontSize: 11, fontWeight: 600 }}>
+                    Sell
+                  </button>
+                </div>
+              );
+            })}
+            <div style={{ height: 1, background: "#1e3560", margin: "12px 0" }}/>
+          </>
+        )}
+
+        {/* New purchases */}
+        <div style={{ fontSize: 10, color: "#445577", letterSpacing: 1, marginBottom: 8 }}>BUY NEW STOCKS</div>
+        <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 28px", gap: 8, marginBottom: 6 }}>
+          {["TICKER", "$ TO INVEST", ""].map(h => <div key={h} style={{ fontSize: 10, color: "#334466" }}>{h}</div>)}
+        </div>
+        {newRows.map(r => (
+          <div key={r.id} style={{ display: "grid", gridTemplateColumns: "90px 1fr 28px", gap: 8, marginBottom: 8, alignItems: "center" }}>
+            <input value={r.ticker} onChange={e => updateNew(r.id, "ticker", e.target.value)} placeholder="AAPL"
+              style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
+            <input type="number" min="0" value={r.spentStr} onChange={e => updateNew(r.id, "spentStr", e.target.value)} placeholder="Amount ($)"
+              style={{ ...iStyle, borderColor: overBudget ? "#ef444466" : "#2a3f6b" }}/>
+            <button onClick={() => removeNew(r.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 13, height: 34, width: 28 }}>✕</button>
+          </div>
+        ))}
+        <button onClick={addNewRow} style={{ background: "none", border: "1px dashed #7c3aed55", borderRadius: 6, color: "#7c3aed", cursor: "pointer", padding: "7px 0", width: "100%", fontSize: 12, marginBottom: 12 }}>
+          + Add Stock
+        </button>
+
+        {overBudget && (
+          <div style={{ background: "#3a0f0f", border: "1px solid #ef4444", borderRadius: 6, padding: "8px 12px", color: "#fca5a5", fontSize: 12, marginBottom: 12 }}>
+            ⚠️ Not enough cash — reduce purchases or sell a holding first.
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "9px 20px", fontSize: 13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={overBudget}
+            style={{ background: overBudget ? "#2a2040" : "#7c3aed", border: "none", borderRadius: 8, color: overBudget ? "#5566aa" : "#fff", cursor: overBudget ? "default" : "pointer", padding: "9px 22px", fontSize: 13, fontWeight: 700 }}>
+            ▶ Resume &amp; Save
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ── Arcade Session ─────────────────────────────────────────────────────────────
-function ArcadeSession({ portfolio, prices, setPrices, challengers, setChallengers, events, setEvents, timeLeft, setTimeLeft, tickRef, timerRef, onStop }) {
+function ArcadeSession({ portfolio: initialPortfolio, prices: initialPrices, setPrices, challengers: initialChallengers, events, setEvents, timeLeft, setTimeLeft, tickRef, timerRef, onStop }) {
   const [started, setStarted] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [showManage, setShowManage] = useState(false);
+  const [portfolio, setPortfolio] = useState(initialPortfolio);
+  const [prices, setPricesLocal] = useState(initialPrices);
+  const [challengers, setChallengers] = useState(initialChallengers);
+  const [frozenPrices, setFrozenPrices] = useState(null); // prices frozen when modal opens
+  const [playerName] = useState(() => "Player " + Math.floor(Math.random() * 900 + 100));
 
-  const allTickers = [
+  const uniqueTickers = [...new Set([
     ...(portfolio?.picks || []).map(p => p.ticker),
     ...challengers.flatMap(c => c.picks.map(p => p.ticker))
-  ];
-  const uniqueTickers = [...new Set(allTickers)];
+  ])];
 
-  // Format time
   const mins = Math.floor(timeLeft / 60);
   const secs = timeLeft % 60;
   const timeStr = `${mins}:${secs.toString().padStart(2, "0")}`;
   const timeColor = timeLeft < 60 ? "#ef4444" : timeLeft < 180 ? "#f59e0b" : "#22c55e";
 
-  // Start the simulation
+  const openManage = () => {
+    setFrozenPrices({ ...prices }); // freeze prices at this moment
+    setPaused(true);
+    setShowManage(true);
+  };
+
+  const closeManage = (updatedPortfolio) => {
+    if (updatedPortfolio) setPortfolio(updatedPortfolio);
+    setFrozenPrices(null);
+    setPaused(false);
+    setShowManage(false);
+  };
+
+  const activePrices = frozenPrices || prices;
+
+  const runTick = useCallback(() => {
+    setPricesLocal(prev => {
+      const next = { ...prev };
+      const newEvents = [];
+      uniqueTickers.forEach(ticker => {
+        const current = prev[ticker];
+        if (!current) return;
+        const personality = STOCK_PERSONALITIES[ticker] || "volatile";
+        const { newPrice, changePct } = simulatePrice(current.price, personality);
+        next[ticker] = { ...current, prevPrice: current.price, price: newPrice };
+        if (Math.abs(changePct) > 0.08) {
+          const type = changePct > 0 ? "spike" : "crash";
+          const templates = EVENT_TEMPLATES[type];
+          const template = templates[Math.floor(Math.random() * templates.length)];
+          const text = template
+            .replace("{company}", current.companyName || ticker)
+            .replace("{pct}", (Math.abs(changePct) * 100).toFixed(1) + "%");
+          newEvents.push({ id: uid(), text, ticker, type });
+        }
+      });
+      if (newEvents.length) setEvents(prev => [...prev.slice(-4), ...newEvents].slice(-5));
+      return next;
+    });
+    // Update challenger holdings too (AI picks use same price engine)
+    setChallengers(prev => prev.map(c => ({ ...c })));
+  }, [uniqueTickers]);
+
   const startSim = () => {
     setStarted(true);
-
-    // Price tick
     tickRef.current = setInterval(() => {
-      setPrices(prev => {
-        const next = { ...prev };
-        const newEvents = [];
-        uniqueTickers.forEach(ticker => {
-          const current = prev[ticker];
-          if (!current) return;
-          const personality = STOCK_PERSONALITIES[ticker] || "volatile";
-          const { newPrice, changePct } = simulatePrice(current.price, personality);
-          next[ticker] = { ...current, prevPrice: current.price, price: newPrice };
-          // Fire event if large move
-          if (Math.abs(changePct) > 0.08) {
-            const type = changePct > 0 ? "spike" : "crash";
-            const templates = EVENT_TEMPLATES[type];
-            const template = templates[Math.floor(Math.random() * templates.length)];
-            const text = template
-              .replace("{company}", current.companyName || ticker)
-              .replace("{pct}", (Math.abs(changePct) * 100).toFixed(1) + "%");
-            newEvents.push({ id: uid(), text, ticker, type });
-          }
-        });
-        if (newEvents.length) {
-          setEvents(prev => [...prev.slice(-4), ...newEvents].slice(-5));
-        }
-        return next;
-      });
-    }, ARCADE_TICK_MS);
-
-    // Session countdown
+      if (!paused) runTick();
+    }, 4000); // 4 second ticks
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
@@ -515,56 +721,51 @@ function ArcadeSession({ portfolio, prices, setPrices, challengers, setChallenge
     }, 1000);
   };
 
-  // Calculate portfolio value
+  // Sync local prices back to parent
+  useEffect(() => { setPrices(prices); }, [prices]);
+
   const calcValue = (picks, cash) => {
     const stockVal = picks.reduce((s, p) => {
-      const price = prices[p.ticker]?.price;
-      if (!price) return s + p.spent;
-      return s + price * p.shares;
+      const price = activePrices[p.ticker]?.price;
+      if (!price || !p.purchasePrice || !p.spent) return s + p.spent;
+      return s + price * (p.spent / p.purchasePrice);
     }, 0);
     return stockVal + (cash || 0);
   };
 
   const playerValue = portfolio ? calcValue(portfolio.picks, portfolio.cashBalance) : ARCADE_BUDGET;
-  const playerPnL = playerValue - ARCADE_BUDGET;
-  const playerPct = (playerPnL / ARCADE_BUDGET) * 100;
+  const challengerValues = challengers.map(c => ({ ...c, value: calcValue(c.picks, 0) }));
 
-  const challengerValues = challengers.map(c => ({
-    ...c,
-    value: calcValue(c.picks, 0),
-    pnl: calcValue(c.picks, 0) - ARCADE_BUDGET,
-    pct: ((calcValue(c.picks, 0) - ARCADE_BUDGET) / ARCADE_BUDGET) * 100,
-  }));
-
-  // Rankings
   const allPlayers = [
-    { name: "You", value: playerValue, pct: playerPct, isPlayer: true },
-    ...challengerValues.map(c => ({ name: `${c.emoji} ${c.name}`, value: c.value, pct: c.pct, isPlayer: false }))
+    { name: playerName, value: playerValue, isPlayer: true },
+    ...challengerValues.map(c => ({ name: `${c.emoji} ${c.name}`, value: c.value, isPlayer: false }))
   ].sort((a, b) => b.value - a.value);
   const playerRank = allPlayers.findIndex(p => p.isPlayer) + 1;
 
-  const iStyle = { background: "#0f2347", border: "1px solid #1e3560", borderRadius: 12, padding: "16px 18px" };
-
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a0a1a 0%, #0f0f2a 50%, #0a0a1a 100%)", fontFamily: "'DM Sans', sans-serif", color: "#e0e8ff" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a0514 0%, #0f0a1e 50%, #0a0514 100%)", fontFamily: "'DM Sans', sans-serif", color: "#e0e8ff" }}>
       <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 
       {/* Arcade header */}
-      <div style={{ background: "linear-gradient(90deg, #1a0a2e, #2d1b69)", borderBottom: "2px solid #7c3aed", padding: "0 24px" }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 24 }}>🕹️</span>
+      <div style={{ background: "linear-gradient(90deg, #0d0520, #1a0a35)", borderBottom: "2px solid #7c3aed", padding: "0 24px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ background: "#7c3aed", borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🕹️</div>
             <div>
               <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 20, letterSpacing: 3, color: "#a78bfa" }}>ARCADE MODE</div>
-              <div style={{ fontSize: 10, color: "#5566aa", letterSpacing: 1 }}>SOLO SESSION — NOT LINKED TO CLASS</div>
+              <div style={{ fontSize: 10, color: "#5544aa", letterSpacing: 1 }}>SOLO SESSION — NOT LINKED TO CLASS</div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {started && !ended && (
-              <div style={{ fontFamily: "monospace", fontSize: 24, fontWeight: 700, color: timeColor }}>{timeStr}</div>
+              <div style={{ fontFamily: "monospace", fontSize: 26, fontWeight: 700, color: timeColor, minWidth: 60, textAlign: "center" }}>{timeStr}</div>
+            )}
+            {paused && started && !ended && (
+              <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 700, letterSpacing: 1 }}>⏸ PAUSED</div>
             )}
             {!started && !ended && (
-              <button onClick={startSim} style={{ background: "#7c3aed", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", padding: "8px 20px", fontSize: 13, fontWeight: 700 }}>
+              <button onClick={startSim}
+                style={{ background: "#7c3aed", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", padding: "8px 22px", fontSize: 13, fontWeight: 700 }}>
                 ▶ Start Session
               </button>
             )}
@@ -575,117 +776,115 @@ function ArcadeSession({ portfolio, prices, setPrices, challengers, setChallenge
         </div>
       </div>
 
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 20px" }}>
-        {/* Session ended banner */}
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
+        {/* Session ended */}
         {ended && (
-          <div style={{ background: "#1a0a2e", border: "2px solid #7c3aed", borderRadius: 12, padding: "20px", marginBottom: 24, textAlign: "center" }}>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, letterSpacing: 3, color: "#a78bfa", marginBottom: 8 }}>SESSION OVER</div>
+          <div style={{ background: "#1a0a2e", border: "2px solid #7c3aed", borderRadius: 12, padding: "24px", marginBottom: 24, textAlign: "center" }}>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 32, letterSpacing: 4, color: "#a78bfa", marginBottom: 8 }}>SESSION OVER</div>
             <div style={{ fontSize: 16, color: "#e0e8ff", marginBottom: 4 }}>
               You finished <span style={{ color: "#FFD966", fontWeight: 700 }}>#{playerRank}</span> out of {allPlayers.length}
             </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: playerPnL >= 0 ? "#22c55e" : "#ef4444", marginBottom: 16 }}>
-              {fmtPct(playerPct)} · {playerPnL >= 0 ? "+" : ""}{fmt$(playerPnL)}
+            <div style={{ fontSize: 22, fontWeight: 700, color: (playerValue - ARCADE_BUDGET) >= 0 ? "#22c55e" : "#ef4444", marginBottom: 20 }}>
+              {fmtPct((playerValue - ARCADE_BUDGET) / ARCADE_BUDGET * 100)} · {fmt$(playerValue - ARCADE_BUDGET)}
             </div>
             <button onClick={onStop} style={{ background: "#7c3aed", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", padding: "10px 28px", fontSize: 13, fontWeight: 700 }}>
-              Play Again
+              🔄 Play Again
             </button>
           </div>
         )}
 
-        {/* Rankings */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-          {/* Player portfolio */}
-          <div style={{ ...iStyle, borderColor: "#7c3aed" }}>
-            <div style={{ fontSize: 10, color: "#7c3aed", letterSpacing: 1.5, marginBottom: 8 }}>YOUR PORTFOLIO</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: "#FFD966" }}>{fmt$(playerValue)}</div>
-            <div style={{ fontSize: 14, color: playerPnL >= 0 ? "#22c55e" : "#ef4444", marginTop: 2 }}>
-              {playerPnL >= 0 ? "+" : ""}{fmt$(playerPnL)} · {fmtPct(playerPct)}
-            </div>
-            <div style={{ marginTop: 10, fontSize: 11, color: "#5566aa" }}>Rank #{playerRank} of {allPlayers.length}</div>
-          </div>
-
-          {/* Leaderboard */}
-          <div style={iStyle}>
-            <div style={{ fontSize: 10, color: "#6677aa", letterSpacing: 1.5, marginBottom: 8 }}>STANDINGS</div>
-            {allPlayers.map((p, i) => (
-              <div key={p.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < allPlayers.length - 1 ? "1px solid #1a2d52" : "none" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, color: ["#FFD966","#c0cfea","#cd7f32","#445577"][i] || "#445577" }}>#{i+1}</span>
-                  <span style={{ fontSize: 13, fontWeight: p.isPlayer ? 700 : 400, color: p.isPlayer ? "#a78bfa" : "#c0cfea" }}>{p.name}</span>
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 600, color: p.pct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(p.pct)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Player holdings */}
-        <div style={iStyle}>
-          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 15, color: "#a78bfa", letterSpacing: 2, marginBottom: 12 }}>Your Holdings</div>
-          <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 70px 80px 80px 80px", gap: 8, marginBottom: 6 }}>
-            {["Ticker","Company","Shares","Buy","Now","P&L"].map(h => (
-              <div key={h} style={{ fontSize: 10, color: "#445577", textTransform: "uppercase" }}>{h}</div>
-            ))}
-          </div>
-          {(portfolio?.picks || []).map(p => {
-            const priceData = prices[p.ticker];
-            const now = priceData?.price;
-            const pnl = now != null ? (now - p.purchasePrice) * p.shares : null;
-            const tick = priceData && priceData.price !== priceData.prevPrice
-              ? (priceData.price > priceData.prevPrice ? "▲" : "▼") : "";
-            const tickColor = priceData?.price > priceData?.prevPrice ? "#22c55e" : "#ef4444";
-            return (
-              <div key={p.ticker} style={{ display: "grid", gridTemplateColumns: "80px 1fr 70px 80px 80px 80px", gap: 8, padding: "8px 0", borderTop: "1px solid #1a2d52", alignItems: "center" }}>
-                <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#FFD966" }}>{p.ticker}</div>
-                <div style={{ fontSize: 12, color: "#8899bb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{priceData?.companyName || p.ticker}</div>
-                <div style={{ fontSize: 12, color: "#c0cfea" }}>{p.shares.toFixed(3)}</div>
-                <div style={{ fontSize: 12, color: "#c0cfea" }}>{fmt$(p.purchasePrice)}</div>
-                <div style={{ fontSize: 12, color: tickColor, fontWeight: tick ? 600 : 400 }}>{tick} {fmt$(now)}</div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: pnl == null ? "#445577" : pnl >= 0 ? "#22c55e" : "#ef4444" }}>
-                  {pnl == null ? "—" : (pnl >= 0 ? "+" : "") + fmt$(pnl)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Challenger details */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginTop: 16 }}>
+        {/* Player cards grid — same layout as live dashboard */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14, marginBottom: 24 }}>
+          {/* Player card */}
+          <ArcadeStudentCard
+            name={playerName}
+            picks={portfolio?.picks || []}
+            prices={activePrices}
+            budget={ARCADE_BUDGET}
+            cashBalance={portfolio?.cashBalance || 0}
+            isPlayer={true}
+            onClick={started && !ended ? openManage : null}
+          />
+          {/* AI challenger cards */}
           {challengerValues.map(c => (
-            <div key={c.id} style={{ ...iStyle, borderColor: "#1e3560" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 20 }}>{c.emoji}</span>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e0e8ff" }}>{c.name}</div>
-                  <div style={{ fontSize: 10, color: "#445577" }}>{c.description}</div>
-                </div>
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: c.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(c.pct)}</div>
-              <div style={{ fontSize: 11, color: "#6677aa" }}>{c.pnl >= 0 ? "+" : ""}{fmt$(c.pnl)}</div>
-              <div style={{ marginTop: 8 }}>
-                {c.picks.map(p => {
-                  const now = prices[p.ticker]?.price;
-                  const pnl = now != null ? (now - p.purchasePrice) * p.shares : null;
-                  return (
-                    <div key={p.ticker} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", borderTop: "1px solid #0d1f3c" }}>
-                      <span style={{ fontFamily: "monospace", color: "#FFD966" }}>{p.ticker}</span>
-                      <span style={{ color: pnl == null ? "#445577" : pnl >= 0 ? "#22c55e" : "#ef4444" }}>
-                        {pnl == null ? "—" : (pnl >= 0 ? "+" : "") + fmt$(pnl)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <ArcadeStudentCard
+              key={c.id}
+              name={c.name}
+              emoji={c.emoji}
+              description={c.description}
+              picks={c.picks}
+              prices={activePrices}
+              budget={ARCADE_BUDGET}
+              cashBalance={0}
+              isPlayer={false}
+              onClick={null}
+            />
           ))}
         </div>
+
+        {/* Alert badges for big movers */}
+        {(() => {
+          const alerts = uniqueTickers.map(ticker => {
+            const p = prices[ticker];
+            if (!p?.price || !p?.prevPrice) return null;
+            const pct = ((p.price - p.prevPrice) / p.prevPrice) * 100;
+            if (Math.abs(pct) < ALERT_THRESHOLD) return null;
+            return { ticker, pct, companyName: p.companyName };
+          }).filter(Boolean);
+          if (!alerts.length) return null;
+          return (
+            <div style={{ background: "#0f1a2e", border: "1px solid #1e3560", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 10, color: "#5544aa", letterSpacing: 1.5, marginBottom: 8 }}>RECENT MOVERS</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {alerts.map(a => (
+                  <span key={a.ticker} style={{ background: a.pct >= 0 ? "#14532d" : "#3a0f0f", border: `1px solid ${a.pct >= 0 ? "#22c55e55" : "#ef444455"}`, borderRadius: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: a.pct >= 0 ? "#22c55e" : "#ef4444" }}>
+                    {a.pct >= 0 ? "▲" : "▼"} {a.ticker} {Math.abs(a.pct).toFixed(1)}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Live price ticker tape */}
+        {started && (
+          <div style={{ background: "#0a0f1a", border: "1px solid #1a1a3a", borderRadius: 8, padding: "8px 14px", display: "flex", gap: 20, overflowX: "auto", marginBottom: 16 }}>
+            {uniqueTickers.map(ticker => {
+              const p = prices[ticker];
+              const change = p?.prevPrice ? ((p.price - p.prevPrice) / p.prevPrice * 100) : 0;
+              return (
+                <div key={ticker} style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#a78bfa" }}>{ticker}</span>
+                  <span style={{ fontSize: 11, color: "#e0e8ff" }}>{fmt$(p?.price)}</span>
+                  <span style={{ fontSize: 10, color: change >= 0 ? "#22c55e" : "#ef4444" }}>{change >= 0 ? "▲" : "▼"}{Math.abs(change).toFixed(2)}%</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {!started && (
+          <div style={{ textAlign: "center", padding: "40px 0", color: "#445577" }}>
+            <div style={{ fontSize: 14, marginBottom: 8 }}>Press <strong style={{ color: "#a78bfa" }}>▶ Start Session</strong> to begin the {ARCADE_SESSION_MINUTES}-minute trading session.</div>
+            <div style={{ fontSize: 12 }}>Prices will update every 4 seconds. Click your card to manage holdings.</div>
+          </div>
+        )}
       </div>
 
-      {/* Event toasts */}
-      <ArcadeEventToast events={events}/>
+      {showManage && (
+        <ArcadeManageModal
+          portfolio={portfolio}
+          prices={frozenPrices}
+          onSave={(updated) => closeManage(updated)}
+          onClose={() => closeManage(null)}
+        />
+      )}
+
+      <ArcadeEventToast events={events} onDismiss={() => setEvents(prev => prev.slice(0, -1))}/>
     </div>
   );
 }
+
 
 // ── Mode Select Modal ─────────────────────────────────────────────────────────
 function ModeSelectModal({ onSelectLive, onSelectArcade }) {
@@ -774,13 +973,27 @@ function ArcadeStockPicker({ onStart, onCancel }) {
       ...AI_CHALLENGERS.flatMap(c => c.picks.map(p => p.ticker))
     ])];
     const priceResults = await Promise.all(allTickers.map(async t => {
-      const res = await fetch('/api/proxy', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker: t })
-      });
-      const data = await res.json();
-      return { ticker: t, price: data.previousClose || data.currentPrice || 10, companyName: data.companyName || t };
+      try {
+        const res = await fetch('/api/proxy', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker: t })
+        });
+        const data = await res.json();
+        const price = data.previousClose || data.currentPrice;
+        if (!price) return { ticker: t, price: null, companyName: t, error: true };
+        return { ticker: t, price, companyName: data.companyName || t, error: false };
+      } catch (e) {
+        return { ticker: t, price: null, companyName: t, error: true };
+      }
     }));
+
+    // Check for failed fetches
+    const failed = priceResults.filter(r => r.error);
+    if (failed.length) {
+      alert(`Could not fetch prices for: ${failed.map(r => r.ticker).join(", ")}. Please check these tickers and try again.`);
+      setLoading(false);
+      return;
+    }
     const priceMap = {};
     priceResults.forEach(r => { priceMap[r.ticker] = { price: r.price, companyName: r.companyName }; });
     setLoading(false);
