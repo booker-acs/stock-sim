@@ -435,6 +435,14 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
       onError(`You've exceeded your pocket cash! You need ${fmt$(Math.abs(availableCash))} more to complete these purchases.`);
       return;
     }
+    // Hard server-side date check — rejects historical dates even if UI was bypassed via dev tools
+    if (!teacherMode) {
+      const badDates = rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0) && h.date && h.date < SIM_START_DATE);
+      if (badDates.length) {
+        onError("Invalid purchase date — you can only buy stocks at today's price.");
+        return;
+      }
+    }
     if (!valid.length) { onClose(); return; }
     setFetching(true);
     const resolved = await Promise.all(valid.map(async h => {
@@ -2933,13 +2941,14 @@ useEffect(() => {
     students.forEach(s => {
       const totalSpent = (s.holdings || []).reduce((sum, h) => sum + (h.spent || 0), 0);
       const hasOldDate = (s.holdings || []).some(h => h.date && h.date < SIM_START_DATE);
-      // Corrupted if: spent > budget, OR cashBalance exceeds total stock value + starting budget
+      // Corrupted if: spent > budget, cashBalance impossible, or purchasePrice is historical (pre-SIM_START_DATE holding date)
       const stockValue = (s.holdings || []).reduce((sum, h) => {
-        const p = h.purchasePrice;
-        return sum + (p ? h.spent : 0); // use spent as proxy since we don't have live prices here
+        return sum + (h.purchasePrice ? h.spent : 0);
       }, 0);
       const cashCorrupt = s.cashBalance != null && s.cashBalance > stockValue + BUDGET;
-      if (totalSpent > BUDGET * 1.1 || cashCorrupt) corrupted.push(s);
+      const hasCorruptPrice = (s.holdings || []).some(h => h.date && h.date < SIM_START_DATE);
+      if (totalSpent > BUDGET * 1.1 || cashCorrupt || hasCorruptPrice) corrupted.push(s);
+      else if (hasOldDate) needsDateFix.push(s); // this branch now unreachable but kept for safety
       else if (hasOldDate) needsDateFix.push(s);
     });
 
