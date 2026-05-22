@@ -3144,11 +3144,13 @@ useEffect(() => {
               style={{ background: "#1a2d52", border: "1px solid #f59e0b55", borderRadius: 8, color: students.length ? "#f59e0b" : "#445577", cursor: students.length ? "pointer" : "default", padding: "7px 14px", fontSize: 12, fontWeight: 600 }}>
               ⚖️ Fix All
             </button>
-            <button onClick={() => exportCSV(students, prices)} disabled={!students.length}
-              style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: students.length ? "#8899bb" : "#2a3f6b", cursor: students.length ? "pointer" : "default", padding: "7px 14px", fontSize: 12 }}>📤 Export CSV</button>
-            <button onClick={handleSave} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "7px 14px", fontSize: 12 }}>💾 Save</button>
-            <button onClick={() => fileRef.current.click()} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "7px 14px", fontSize: 12 }}>📂 Load</button>
-            <input ref={fileRef} type="file" accept=".json" onChange={handleLoad} style={{ display: "none" }}/>
+            {teacherMode && <>
+              <button onClick={() => exportCSV(students, prices)} disabled={!students.length}
+                style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: students.length ? "#8899bb" : "#2a3f6b", cursor: students.length ? "pointer" : "default", padding: "7px 14px", fontSize: 12 }}>📤 Export CSV</button>
+              <button onClick={handleSave} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "7px 14px", fontSize: 12 }}>💾 Save</button>
+              <button onClick={() => fileRef.current.click()} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "7px 14px", fontSize: 12 }}>📂 Load</button>
+              <input ref={fileRef} type="file" accept=".json" onChange={handleLoad} style={{ display: "none" }}/>
+            </>}
             <div style={{ display: "flex", background: "#FFD966", borderRadius: 8, overflow: "hidden" }}>
               <button onClick={() => setShowAdd(true)} style={{ background: "transparent", border: "none", borderRight: "1px solid rgba(0,0,0,0.15)", color: "#0d1f3c", cursor: "pointer", padding: "7px 14px", fontSize: 12, fontWeight: 700 }}>
                 + Add Student
