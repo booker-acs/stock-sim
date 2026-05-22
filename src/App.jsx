@@ -2811,33 +2811,27 @@ useEffect(() => {
       results.forEach(r => { if (!r.error) next[r.ticker] = r; });
       return next;
     });
-    setStudents(prev => prev.map(s => ({
-      ...s,
-      holdings: s.holdings.map(h => {
-        if (h.purchasePrice != null) return h;
-        const p = results.find(r => r.ticker === h.ticker);
-        if (!p?.currentPrice) return h;
-        return { ...h, purchasePrice: p.currentPrice, shares: h.spent / p.currentPrice };
-      })
-    })));
-    // snapshot portfolio history for each student
+    // snapshot portfolio history for each student and write to Firebase
     const today = new Date().toISOString().slice(0, 10);
-    setStudents(prev => prev.map(s => {
+    students.forEach(s => {
       const totalInvested = s.holdings.reduce((a, h) => a + h.spent, 0);
-      const totalCurrent = s.holdings.reduce((a, h) => {
+      if (!totalInvested) return;
+      const cash = s.cashBalance != null ? s.cashBalance : BUDGET - totalInvested;
+      const stockVal = s.holdings.reduce((a, h) => {
         const p = results.find(r => r.ticker === h.ticker);
         const price = p?.currentPrice;
-        return a + (price != null && h.shares != null ? price * h.shares : h.spent);
+        if (!price || !h.purchasePrice || !h.spent) return a + h.spent;
+        return a + price * (h.spent / h.purchasePrice);
       }, 0);
-      if (!totalInvested) return s;
+      const portfolioValue = stockVal + cash;
       const history = s.history || [];
       const lastEntry = history[history.length - 1];
-      // only add one snapshot per day
-      if (lastEntry?.date === today) {
-        return { ...s, history: [...history.slice(0, -1), { date: today, value: totalCurrent }] };
-      }
-      return { ...s, history: [...history, { date: today, value: totalCurrent }] };
-    }));
+      const newHistory = lastEntry?.date === today
+        ? [...history.slice(0, -1), { date: today, value: portfolioValue }]
+        : [...history, { date: today, value: portfolioValue }];
+      // Only write history to Firebase — never touch holdings during a price refresh
+      update(ref(db, `students/${s.id}`), { history: newHistory });
+    });
     setLastRefresh(new Date());
     setRefreshing(false);
   }, []);
