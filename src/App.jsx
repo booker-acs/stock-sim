@@ -435,9 +435,10 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
       onError(`You've exceeded your pocket cash! You need ${fmt$(Math.abs(availableCash))} more to complete these purchases.`);
       return;
     }
-    // Hard server-side date check — rejects historical dates even if UI was bypassed via dev tools
+    // Hard server-side date check — rejects any date before today unless teacher mode
     if (!teacherMode) {
-      const badDates = rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0) && h.date && h.date < SIM_START_DATE);
+      const todayCheck = new Date().toISOString().slice(0, 10);
+      const badDates = rows.filter(h => !(h.purchasePrice != null && h.purchasePrice > 0) && h.date && h.date < todayCheck);
       if (badDates.length) {
         onError("Invalid purchase date — you can only buy stocks at today's price.");
         return;
@@ -564,11 +565,14 @@ function ManageHoldingsModal({ student, onSave, onClose, onError, fetchPrice, pr
                 <div key={h.id} style={{ marginBottom: 10 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "90px 130px 1fr 32px", gap: 8, alignItems: "center" }}>
                     <input value={h.ticker} onChange={e => updateRow(h.id, "ticker", e.target.value)} placeholder="AAPL" style={{ ...iStyle, fontFamily: "monospace", textTransform: "uppercase" }}/>
-                    <input type="date" value={h.date}
-                      min={teacherMode ? undefined : today}
-                      max={teacherMode ? undefined : today}
-                      onChange={e => updateRow(h.id, "date", e.target.value)}
-                      style={{ ...iStyle, borderColor: isPast && teacherMode ? "#f59e0b66" : "#2a3f6b" }}/>
+                    {teacherMode ? (
+                      <input type="date" value={h.date}
+                        onChange={e => updateRow(h.id, "date", e.target.value)}
+                        style={{ ...iStyle, borderColor: isPast ? "#f59e0b66" : "#2a3f6b" }}/>
+                    ) : (
+                      <input type="date" value={today} readOnly
+                        style={{ ...iStyle, borderColor: "#2a3f6b", opacity: 0.6, cursor: "not-allowed" }}/>
+                    )}
                     <input type="number" min="0" value={h.spentStr} onChange={e => updateRow(h.id, "spentStr", e.target.value)} placeholder="Amount ($)" style={{ ...iStyle, borderColor: overBudget ? "#ef444466" : "#2a3f6b" }}/>
                     <button onClick={() => removeRow(h.id)} style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 14, height: 36, width: 32 }}>✕</button>
                   </div>
