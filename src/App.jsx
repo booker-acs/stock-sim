@@ -19,6 +19,7 @@ const fmt$ = (n) => n == null ? "—" : `$${Number(n).toLocaleString("en-US", { 
 const fmtPct = (n) => n == null ? "—" : `${n >= 0 ? "+" : ""}${Number(n).toFixed(2)}%`;
 const uid = () => Math.random().toString(36).slice(2, 9);
 const BUDGET = 10000;
+const TEACHER_KEY = "booker2026"; // secret URL param — teacher mode only shows if ?key=this
 const SIM_START_DATE = "2026-05-19"; // any holding before this date is considered exploited (sim started May 20)
 
 // Get the most recent portfolio value from history that is before today
@@ -2716,6 +2717,10 @@ export default function App() {
   // ── App mode ──────────────────────────────────────────────────────────────
   const [appMode, setAppMode] = useState("select"); // "select" | "live" | "arcade-pick" | "arcade"
 
+  // ── Teacher key check — only show teacher mode button if ?key=TEACHER_KEY ──
+  const urlKey = new URLSearchParams(window.location.search).get("key");
+  const teacherKeyValid = urlKey === TEACHER_KEY;
+
   // ── Arcade state ───────────────────────────────────────────────────────────
   const [arcadePortfolio, setArcadePortfolio] = useState(null);
   const [arcadePrices, setArcadePrices] = useState({});
@@ -3075,7 +3080,7 @@ useEffect(() => {
 
   if (detailStudent) return (
     <>
-      {teacherMode && (
+      {teacherKeyValid && teacherMode && (
         <div style={{ background: "#0d2a1a", borderBottom: "1px solid #22c55e44", padding: "6px 24px", textAlign: "center", fontSize: 11, color: "#22c55e", fontWeight: 700, letterSpacing: 1 }}>
           🔑 TEACHER MODE ACTIVE — PIN BYPASS ENABLED
         </div>
@@ -3127,8 +3132,8 @@ useEffect(() => {
                 </button>
               ))}
             </div>
-            {/* Teacher Mode Toggle */}
-            {teacherMode ? (
+            {/* Teacher Mode Toggle — only visible with correct URL key */}
+            {teacherKeyValid && (teacherMode ? (
               <button onClick={() => setTeacherMode(false)}
                 style={{ background: "#14532d", border: "1px solid #22c55e88", borderRadius: 8, color: "#22c55e", cursor: "pointer", padding: "7px 14px", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", display: "inline-block", boxShadow: "0 0 6px #22c55e" }}/>
@@ -3139,7 +3144,7 @@ useEffect(() => {
                 style={{ background: "#1a2d52", border: "1px solid #2a3f6b", borderRadius: 8, color: "#8899bb", cursor: "pointer", padding: "7px 14px", fontSize: 12 }}>
                 🔑 Teacher Mode
               </button>
-            )}
+            ))}
             <button onClick={() => refreshPrices(allTickers)} disabled={refreshing || !allTickers.length}
               style={{ background: refreshing ? "#1a2d52" : "#1C4587", border: "1px solid #2a4a8a", borderRadius: 8, color: refreshing ? "#5566aa" : "#e0e8ff", cursor: refreshing ? "default" : "pointer", padding: "7px 14px", fontSize: 12 }}>
               {refreshing ? "⟳ Updating…" : "⟳ Refresh"}
@@ -3280,7 +3285,7 @@ useEffect(() => {
           />
         );
       })()}
-      {teacherModePrompt && (
+      {teacherKeyValid && teacherModePrompt && (
         <PinModal
           studentName="Teacher Access"
           pinError={pinError}
