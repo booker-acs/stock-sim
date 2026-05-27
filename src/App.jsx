@@ -239,7 +239,7 @@ function isMarketOpen() {
   const mins = et.getHours() * 60 + et.getMinutes();
   return mins >= 570 && mins < 960; // 9:30am to 4:00pm
 }
-const TEACHER_PIN_HASH = "555e1980f5d793081110be32ab6bc31928eebaf008d1273f189c0ed29e50f2a4"; // sha256 of teacher PIN
+const TEACHER_PIN_HASH = "d2eb6a75e8eecc7dcf9cc7a568bc95d5e3ebe2c0fc5746e421e2157e490aaac4"; // sha256 of teacher PIN
 const hashPin = async (pin) => {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
